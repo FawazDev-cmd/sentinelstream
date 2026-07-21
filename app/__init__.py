@@ -1,0 +1,1 @@
+"""SentinelStream application package."""
