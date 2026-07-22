@@ -6,11 +6,22 @@ SentinelStream is a portfolio-first, real-time log intelligence platform that in
 
 ## Current Status
 
-Repository and local project setup are complete.
+Day 1 — Project Foundation is complete, committed, and pushed.
 
-The GitHub repository, local workspace, Git initialization, `main` branch, remote connection, and initial commit have been established.
+The project currently provides:
 
-Day 1 is complete. The application foundation and all documented quality gates, including the HTTP smoke test, have been verified.
+- Python 3.13 project configuration through uv
+- FastAPI application factory
+- centralized Pydantic settings
+- structured JSON logging
+- `GET /health`
+- pytest coverage
+- Ruff linting and formatting
+- strict mypy analysis
+- initial modular package structure
+- project documentation
+
+Implementation now proceeds to Day 2.
 
 ## Current Milestone
 
@@ -18,162 +29,150 @@ Phase 1 — Foundation and Contracts
 
 ### Active Task
 
-Day 1 — Project Foundation
+Day 2 — Log Domain Contracts
 
 ### Objective
 
-Create the smallest verified SentinelStream application foundation using the agreed stack and engineering conventions.
+Define the stable, framework-independent internal representation of a normalized server log event.
 
-The completed foundation must provide:
+Day 2 must establish:
 
-- Python 3.13 project configuration through uv
-- FastAPI application factory
-- central Pydantic settings
-- structured JSON logging
-- GET /health endpoint
-- pytest coverage
-- Ruff linting and formatting
-- strict mypy analysis
-- initial modular package structure
-- initial project documentation
+- normalized log levels
+- immutable or safely structured log-event identifiers
+- UTC-aware event timestamps
+- service and environment identity
+- optional request, trace, exception, latency, and status-code fields
+- bounded metadata
+- domain validation rules
+- deterministic unit tests
+
+These contracts will become the foundation for ingestion, normalization, persistence, detection, and incident grouping.
 
 ## Architecture Direction
 
-The project will use these logical layers:
+Day 2 belongs entirely to the domain layer.
 
-- Domain
-- Application
-- Infrastructure
-- Presentation
-- Monitoring
-- Shared configuration
+The new code must not depend on:
 
-Dependency direction:
-
-- Presentation may depend on application contracts.
-- Infrastructure may implement application contracts.
-- Application may depend on domain models and policies.
-- Domain must remain independent of FastAPI, SQLAlchemy, Streamlit, PostgreSQL, queue implementations, and LLM providers.
-
-Only the presentation, monitoring, and shared configuration foundations are required for Day 1.
-
-## Planned MVP Processing Flow
-
-1. A server or simulator sends a structured JSON log.
-2. FastAPI validates the external request.
-3. The application normalizes it into a domain LogEvent.
-4. The event enters a bounded asynchronous queue.
-5. A background processor consumes it.
-6. PostgreSQL stores the normalized event.
-7. Deterministic detectors evaluate rolling-window evidence.
-8. Anomalies are persisted.
-9. Related anomalies are grouped into incidents.
-10. A deterministic explainer generates an evidence-based explanation.
-11. Incident and metrics APIs expose the result.
-12. A minimal Streamlit dashboard consumes those APIs.
-
-Only the application foundation is being implemented now.
-
-## Approved Core Stack
-
-- Python 3.13
-- uv
 - FastAPI
-- Uvicorn
-- Pydantic
-- pydantic-settings
-- pytest
-- Ruff
-- mypy
-- standard-library structured JSON logging
-
-Later milestones will add:
-
-- PostgreSQL
-- Docker
-- GitHub Actions
-- Streamlit
-
-## Key Decisions
-
-### Application creation
-
-SentinelStream will use a FastAPI application factory.
-
-This keeps application construction explicit and testable and allows tests to inject custom settings.
-
-### Configuration
-
-Configuration will be centralized using `pydantic-settings`.
-
-Environment variables will use the `SENTINELSTREAM_` prefix.
-
-### Logging
-
-Day 1 will use standard-library logging with a small JSON formatter.
-
-The logging setup must:
-
-- use UTC timestamps
-- include level, logger, and message
-- include exception information when present
-- avoid duplicate handlers
-- avoid serializing arbitrary objects
-
-### Health endpoint
-
-`GET /health` will confirm only that the application process is running.
-
-It will not check PostgreSQL, queues, detectors, or external services because those dependencies do not exist yet.
-
-## Day 1 Scope
-
-Create:
-
-- `pyproject.toml`
-- `uv.lock`
-- `.env.example`
-- updated `.gitignore`
-- application package
-- shared settings module
-- monitoring logging module
-- FastAPI application factory
-- health router
-- tests
-- initial README updates
-- initial `.ai` architecture and development documents
-
-## Day 1 Non-Goals
-
-Do not implement:
-
-- log ingestion
-- LogEvent domain models
-- asynchronous queues
-- workers
-- PostgreSQL
+- Pydantic request schemas
 - SQLAlchemy
-- migrations
-- repositories
-- anomaly detection
-- rolling windows
-- incident grouping
-- explanations
-- LLM integration
-- operational metrics
-- simulator
+- PostgreSQL
+- queue implementations
+- application services
 - Streamlit
-- Docker
-- CI
+- LLM providers
+- infrastructure-specific code
 
-## Quality Gates
+The domain model represents SentinelStream’s trusted internal log format after external input has been validated and normalized.
 
-Day 1 must pass:
+API request models, ORM models, and domain models must remain separate.
 
-```bash
-uv sync
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy app tests
-```
+## Planned Domain Representation
+
+A normalized log event should support:
+
+- `event_id`
+- `timestamp`
+- `received_at`
+- `service`
+- `environment`
+- `level`
+- `message`
+- optional `exception_type`
+- optional `exception_message`
+- optional `latency_ms`
+- optional `status_code`
+- optional `trace_id`
+- optional `request_id`
+- optional `host`
+- bounded metadata
+
+Not every field is required.
+
+The minimum useful event should identify:
+
+- when the event occurred
+- which service produced it
+- which environment it belongs to
+- its normalized severity
+- its message
+
+## Domain Invariants
+
+The implementation must enforce:
+
+- timezone-aware timestamps
+- UTC normalization or explicit UTC-only storage
+- non-empty service names
+- non-empty environment names
+- non-empty messages
+- normalized finite log-level values
+- non-negative latency
+- valid HTTP-style status-code bounds when provided
+- bounded string lengths
+- bounded metadata size and nesting
+- no mutable shared default values
+
+The domain layer should reject invalid internal state rather than silently repair it.
+
+External normalization will be implemented on Day 3.
+
+## Log Levels
+
+Use a small normalized enum covering:
+
+- DEBUG
+- INFO
+- WARNING
+- ERROR
+- CRITICAL
+
+Do not include provider-specific aliases such as `WARN`, `FATAL`, or lowercase variants in the domain enum.
+
+Those aliases will be translated during ingestion normalization on Day 3.
+
+## Identifier Policy
+
+`event_id` should use a strongly typed UUID value.
+
+The domain model should accept an explicit UUID so tests and future ingestion logic can control identifiers deterministically.
+
+Do not generate unpredictable identifiers deep inside the model unless exposed through a clearly separate factory.
+
+## Metadata Policy
+
+Metadata exists for additional structured context, but detectors must not depend on arbitrary uncontrolled content.
+
+Day 2 should introduce conservative limits for:
+
+- maximum number of keys
+- maximum key length
+- maximum supported nesting depth
+- supported JSON-compatible scalar and collection values
+
+Do not implement a general-purpose serialization framework.
+
+Keep the policy small, understandable, and testable.
+
+## Implementation Preference
+
+Use Pydantic domain models only if they remain framework-independent and provide clear value for validation and immutability.
+
+A standard dataclass plus explicit validation is also acceptable.
+
+The choice must be justified by simplicity, typing quality, and future conversion boundaries.
+
+Do not reuse FastAPI request models as domain models.
+
+## Day 2 Scope
+
+Create only the domain files necessary for normalized log contracts, likely including:
+
+```text
+app/domain/
+├── __init__.py
+└── logs/
+    ├── __init__.py
+    ├── models.py
+    └── types.py
