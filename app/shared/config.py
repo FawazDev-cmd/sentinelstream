@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,9 +17,18 @@ class Settings(BaseSettings):
     worker_shutdown_timeout_seconds: float = Field(
         default=10.0, gt=0, allow_inf_nan=False
     )
+    database_url: str = "postgresql+asyncpg://sentinelstream:sentinelstream@localhost:5432/sentinelstream"
+    database_echo: bool = False
     model_config = SettingsConfigDict(
         env_file=".env", env_prefix="SENTINELSTREAM_", extra="ignore"
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def database_url_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("database URL must not be blank")
+        return value
 
 
 @lru_cache(maxsize=1)

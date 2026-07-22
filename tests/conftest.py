@@ -5,6 +5,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from app.application.services.processor import LoggingEventProcessor
 from app.presentation.api.main import create_app
 from app.shared.config import Settings
 
@@ -22,5 +23,7 @@ def test_settings() -> Settings:
 
 @pytest.fixture
 def client(test_settings: Settings) -> Iterator[TestClient]:
-    with TestClient(create_app(test_settings)) as test_client:
+    with TestClient(
+        create_app(test_settings, event_processor=LoggingEventProcessor())
+    ) as test_client:
         yield test_client

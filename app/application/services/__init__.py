@@ -5,6 +5,7 @@ from app.application.services.ingestion import (
     IngestionResult,
     IngestionService,
 )
+from app.application.services.persistence import PersistenceEventProcessor
 from app.application.services.processor import LoggingEventProcessor
 from app.application.services.worker import EventWorker
 
@@ -14,4 +15,5 @@ __all__ = [
     "IngestionResult",
     "IngestionService",
     "LoggingEventProcessor",
+    "PersistenceEventProcessor",
 ]

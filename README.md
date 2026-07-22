@@ -1,33 +1,47 @@
 ﻿# SentinelStream
 
-SentinelStream is a portfolio-first log intelligence project. It currently exposes validated single-event ingestion backed by a bounded in-process asynchronous queue and one managed background worker.
+SentinelStream currently validates single log events, queues trusted domain events in a bounded non-durable in-process queue, and asynchronously persists them to PostgreSQL through a managed background worker.
 
-## Current ingestion semantics
+## Semantics and limitations
 
-`POST /api/v1/logs` validates and normalizes a structured log into the trusted domain model. HTTP 202 means the event was successfully placed into the in-process queue. Publication is non-blocking; when capacity is exhausted, the endpoint returns HTTP 503.
+`POST /api/v1/logs` returns HTTP 202 only after an event enters the in-process queue. It does not confirm persistence or durable recovery. Queue capacity exhaustion returns HTTP 503.
 
-The background worker sends queued events to an asynchronous processor. Processor failures are safely logged and isolated so later events can continue. Shutdown attempts to drain queued work for a bounded period before cancelling and awaiting the worker.
+The worker uses SQLAlchemy 2.x asynchronous APIs with asyncpg to persist normalized events. Persistence failures are safely logged and isolated so later events continue, but there is no retry or dead-letter recovery; a failed asynchronous event is currently lost. Process crashes may also lose queued or processing events. There is no anomaly detection, incident generation, or querying API.
 
-This queue is not durable or distributed. Queued or processing events may be lost if the process crashes or is forcibly terminated. There is no persistence, anomaly detection, incident generation, retry, or dead-letter behavior.
+## Local PostgreSQL setup
 
-`GET /health` reports process health and configured service identity only.
+1. Create a local PostgreSQL database and application user.
+2. Set `SENTINELSTREAM_DATABASE_URL` using a local URL such as `postgresql+asyncpg://<user>:<password>@localhost:5432/<database>`.
+3. Run `uv sync`.
+4. Start the API with `uv run uvicorn app.presentation.api.main:app --reload`.
+5. Submit one event to `POST http://127.0.0.1:8000/api/v1/logs`.
+
+Missing tables are currently created during owned application startup using SQLAlchemy `create_all`. This is a temporary local-development mechanism, not a production migration strategy. Alembic is not implemented yet and is expected to replace this behavior later.
+
+`GET /health` remains a shallow process-health check and performs no database query.
 
 ## Configuration
 
-- `SENTINELSTREAM_EVENT_QUEUE_MAX_SIZE` controls the maximum events held in memory; default `1000`.
-- `SENTINELSTREAM_WORKER_SHUTDOWN_TIMEOUT_SECONDS` controls the maximum graceful shutdown drain duration; default `10`.
+- `SENTINELSTREAM_EVENT_QUEUE_MAX_SIZE`: maximum events held in memory; default `1000`.
+- `SENTINELSTREAM_WORKER_SHUTDOWN_TIMEOUT_SECONDS`: maximum graceful drain duration; default `10`.
+- `SENTINELSTREAM_DATABASE_URL`: SQLAlchemy async PostgreSQL URL.
+- `SENTINELSTREAM_DATABASE_ECHO`: SQL statement logging; default `false`.
 
-## Setup
+## Tests
+
+The normal suite requires no PostgreSQL server. Optional integration tests require a dedicated database whose name contains `test`:
+
+```bash
+set SENTINELSTREAM_TEST_DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/sentinelstream_test
+uv run pytest -m integration
+```
+
+Run the standard checks with:
 
 ```bash
 uv sync
-uv run uvicorn app.presentation.api.main:app --reload
-```
-
-## Quality checks
-
-```bash
 uv run pytest
+uv run pytest -m "not integration"
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy app tests

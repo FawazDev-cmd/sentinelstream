@@ -5,9 +5,11 @@ description = "A real-time log intelligence platform"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+    "asyncpg>=0.31.0",
     "fastapi>=0.115.0,<1.0.0",
     "pydantic>=2.10.0,<3.0.0",
     "pydantic-settings>=2.7.0,<3.0.0",
+    "sqlalchemy>=2.0,<3.0",
     "uvicorn>=0.34.0,<1.0.0",
 ]
 
@@ -22,6 +24,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: requires a dedicated PostgreSQL test database",
+]
 
 [tool.ruff]
 line-length = 88

@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.application.exceptions import EventQueueFullError
+from app.application.services.processor import LoggingEventProcessor
 from app.domain.logs import LogEvent
 from app.presentation.api.dependencies import get_ingestion_service
 from app.presentation.api.main import create_app
@@ -66,6 +67,7 @@ def ingestion_client(
             event_queue=queue,
             clock=FixedClock(),
             event_id_factory=lambda: EVENT_ID,
+            event_processor=LoggingEventProcessor(),
         )
     ) as client:
         yield client
@@ -120,6 +122,7 @@ def test_queue_full_returns_stable_503(test_settings: Settings) -> None:
             event_queue=RecordingQueue(full=True),
             clock=FixedClock(),
             event_id_factory=lambda: EVENT_ID,
+            event_processor=LoggingEventProcessor(),
         )
     ) as client:
         response = client.post("/api/v1/logs", json=payload())
@@ -135,7 +138,11 @@ class BrokenService:
 
 
 def test_unexpected_service_error_remains_500(test_settings: Settings) -> None:
-    application = create_app(test_settings, event_queue=RecordingQueue())
+    application = create_app(
+        test_settings,
+        event_queue=RecordingQueue(),
+        event_processor=LoggingEventProcessor(),
+    )
     application.dependency_overrides[get_ingestion_service] = BrokenService
     with TestClient(application, raise_server_exceptions=False) as client:
         response = client.post("/api/v1/logs", json=payload())

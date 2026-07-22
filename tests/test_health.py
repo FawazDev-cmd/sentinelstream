@@ -6,6 +6,7 @@ import logging
 
 from fastapi.testclient import TestClient
 
+from app.application.services.processor import LoggingEventProcessor
 from app.monitoring.logging import configure_logging
 from app.presentation.api.main import create_app
 from app.shared.config import Settings
@@ -23,7 +24,7 @@ def test_health_returns_injected_service_identity(client: TestClient) -> None:
 
 
 def test_application_factory_accepts_settings(test_settings: Settings) -> None:
-    application = create_app(test_settings)
+    application = create_app(test_settings, event_processor=LoggingEventProcessor())
 
     assert application.title == test_settings.application_name
     assert application.version == test_settings.application_version
@@ -36,8 +37,8 @@ def test_repeated_setup_does_not_multiply_handlers(test_settings: Settings) -> N
     count_after_first_setup = len(root_logger.handlers)
 
     configure_logging(test_settings)
-    create_app(test_settings)
-    create_app(test_settings)
+    create_app(test_settings, event_processor=LoggingEventProcessor())
+    create_app(test_settings, event_processor=LoggingEventProcessor())
 
     assert len(root_logger.handlers) == count_after_first_setup
 
