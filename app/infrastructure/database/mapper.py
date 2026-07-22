@@ -6,7 +6,12 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID, uuid4
 
-from app.domain.anomalies import AnomalyFinding
+from app.application.queries.anomalies import PersistedAnomalyFinding
+from app.domain.anomalies import (
+    AnomalyFinding,
+    AnomalySeverity,
+    AnomalyType,
+)
 from app.domain.logs import LogEvent, LogLevel
 from app.domain.logs.models import FrozenJsonValue, JsonValue
 from app.infrastructure.database.models import AnomalyFindingRecord, LogEventRecord
@@ -78,4 +83,25 @@ def map_log_event_record(record: LogEventRecord) -> LogEvent:
         request_id=record.request_id,
         host=record.host,
         metadata=metadata,
+    )
+
+
+def map_anomaly_finding_record(
+    record: AnomalyFindingRecord,
+) -> PersistedAnomalyFinding:
+    if not isinstance(record.evidence, list) or not all(
+        isinstance(item, str) and bool(item.strip()) for item in record.evidence
+    ):
+        raise ValueError(
+            "persisted anomaly evidence must be a list of nonblank strings"
+        )
+    return PersistedAnomalyFinding(
+        id=record.id,
+        event_id=record.event_id,
+        anomaly_type=AnomalyType(record.anomaly_type),
+        severity=AnomalySeverity(record.severity),
+        rule_id=record.rule_id,
+        title=record.title,
+        evidence=tuple(record.evidence),
+        created_at=record.created_at,
     )

@@ -83,6 +83,13 @@ def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
                 constructed.setdefault("reader_factory", factory) and object()
             ),
         )
+        monkeypatch.setattr(
+            main,
+            "SqlAlchemyAnomalyFindingReader",
+            lambda factory: (
+                constructed.setdefault("anomaly_reader_factory", factory) and object()
+            ),
+        )
         settings = Settings(environment="test")
         app = main.create_app(settings)
         async with app.router.lifespan_context(app):
@@ -96,8 +103,10 @@ def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
             "detector": detector,
             "persistence": persistence,
             "reader_factory": session_factory,
+            "anomaly_reader_factory": session_factory,
         }
         assert len(rules) == 4 and app.state.log_event_reader is not None
+        assert app.state.anomaly_finding_reader is not None
         assert engine.disposals == 1 and task.done()
 
     asyncio.run(scenario())

@@ -14,6 +14,7 @@ from app.application.anomalies import (
     build_default_anomaly_rules,
     detection_policy_from_settings,
 )
+from app.application.contracts.anomaly_reader import AnomalyFindingReader
 from app.application.contracts.clock import Clock, SystemClock
 from app.application.contracts.event_processor import EventProcessor
 from app.application.contracts.event_queue import EventQueue
@@ -21,6 +22,9 @@ from app.application.contracts.reader import LogEventReader
 from app.application.services.ingestion import IngestionService
 from app.application.services.persistence import DetectAndPersistLogEventProcessor
 from app.application.services.worker import EventWorker
+from app.infrastructure.database.anomaly_reader import (
+    SqlAlchemyAnomalyFindingReader,
+)
 from app.infrastructure.database.detection_persistence import (
     SqlAlchemyDetectionPersistence,
 )
@@ -31,6 +35,7 @@ from app.infrastructure.database.runtime import (
 )
 from app.infrastructure.queue.memory import InMemoryEventQueue
 from app.monitoring.logging import configure_logging
+from app.presentation.api.routes.anomalies import router as anomalies_router
 from app.presentation.api.routes.health import router as health_router
 from app.presentation.api.routes.logs import router as logs_router
 from app.shared.config import Settings, get_settings
@@ -46,6 +51,7 @@ def create_app(
     event_id_factory: Callable[[], UUID] | None = None,
     database_engine: AsyncEngine | None = None,
     log_event_reader: LogEventReader | None = None,
+    anomaly_finding_reader: AnomalyFindingReader | None = None,
 ) -> FastAPI:
     """Build one explicitly owned application runtime."""
     active_settings = settings or get_settings()
@@ -67,6 +73,8 @@ def create_app(
         )
         if log_event_reader is None:
             log_event_reader = SqlAlchemyLogEventReader(session_factory)
+        if anomaly_finding_reader is None:
+            anomaly_finding_reader = SqlAlchemyAnomalyFindingReader(session_factory)
     else:
         processor = event_processor
     ingestion_service = IngestionService(
@@ -116,7 +124,9 @@ def create_app(
     application.state.settings = active_settings
     application.state.ingestion_service = ingestion_service
     application.state.log_event_reader = log_event_reader
+    application.state.anomaly_finding_reader = anomaly_finding_reader
     application.include_router(health_router)
+    application.include_router(anomalies_router)
     application.include_router(logs_router)
     return application
 

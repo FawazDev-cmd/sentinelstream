@@ -58,6 +58,26 @@ process-local and there are no retries, dead-letter handling, replay, outbox, or
 broker. There is no incident grouping, rolling-window/statistical detection, alerting,
 explanation generation, or LLM involvement.
 
+
+## Query persisted anomalies
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/anomalies"
+curl "http://127.0.0.1:8000/api/v1/anomalies?anomaly_type=high_latency&severity=critical&limit=2"
+curl "http://127.0.0.1:8000/api/v1/anomalies?event_id=<event_uuid>"
+curl "http://127.0.0.1:8000/api/v1/anomalies?limit=2&cursor=<next_cursor>"
+```
+
+Supported filters are exact `event_id`, `anomaly_type`, `severity`, and `rule_id`, plus
+inclusive `created_at` bounds through `start_time` and `end_time`. Results are fixed to
+`created_at DESC, id DESC`. Limits range from 1 to 100 with a default of 50. Cursors are
+opaque URL-safe encoded values, not encrypted or signed, and responses have no total
+count.
+
+The endpoint is read-only and returns no source log messages or metadata. Migration
+`20260722_0002` must be applied. HTTP 202 ingestion remains queue acceptance only. There
+is no acknowledgement, resolution, mutation, aggregation, incident handling, alerting,
+or LLM explanation functionality.
 ## Quality checks
 
 ```bash

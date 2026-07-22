@@ -109,3 +109,21 @@ transactional adapter, and the existing single worker. Processor injection bypas
 database and detector construction. HTTP 202 still represents queue acceptance only.
 There is no anomaly read API, retry, replay, incident logic, rolling-window detection,
 alerting, or LLM explanation behavior.
+
+## Persisted anomaly read boundary
+
+Day 10 adds immutable persisted-finding, query, cursor, and page values plus the narrow
+`AnomalyFindingReader` protocol. The persisted read value is deliberately separate from
+the Day 8 detector finding and includes only storage identity, source-event identity,
+stable enums, rule/title, safe evidence, and persistence time.
+
+`SqlAlchemyAnomalyFindingReader` shares the production session factory, opens a fresh
+session per request, and issues one SELECT without commits or source-event joins. Exact
+filters combine with AND semantics. Ordering is fixed to `(created_at DESC, id DESC)`;
+the matching cursor predicate selects older timestamps or lower UUIDs at equal time.
+The reader fetches `limit + 1` and derives the next cursor from the final returned item.
+
+Presentation owns `GET /api/v1/anomalies`, typed response schemas, cursor conversion,
+query validation, and a generic safe 500 response. The endpoint returns no source log
+message, metadata, total count, mutation state, aggregation, or incident information.
+No schema revision was needed beyond `20260722_0002`.

@@ -382,3 +382,120 @@ async def _cleanup_day9_rows(
             delete(LogEventRecord).where(LogEventRecord.event_id.in_(event_ids))
         )
         await session.commit()
+
+
+def test_anomaly_reader_filters_order_and_cursor_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.application.queries.anomalies import AnomalyFindingQuery
+    from app.domain.anomalies import AnomalySeverity, AnomalyType
+    from app.infrastructure.database.anomaly_reader import (
+        SqlAlchemyAnomalyFindingReader,
+    )
+    from app.infrastructure.database.mapper import map_log_event
+    from app.infrastructure.database.models import AnomalyFindingRecord
+
+    url = database_url()
+    monkeypatch.setenv("SENTINELSTREAM_DATABASE_URL", url)
+    command.upgrade(alembic_config(), "head")
+    engine = create_async_engine(url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    event_ids = [UUID(int=9201), UUID(int=9202)]
+    finding_ids = [UUID(int=9300 + number) for number in range(1, 7)]
+    moments = [
+        datetime(2026, 7, 22, 12, tzinfo=UTC),
+        datetime(2026, 7, 22, 11, tzinfo=UTC),
+        datetime(2026, 7, 22, 11, tzinfo=UTC),
+        datetime(2026, 7, 22, 10, tzinfo=UTC),
+        datetime(2026, 7, 22, 9, tzinfo=UTC),
+        datetime(2026, 7, 22, 8, tzinfo=UTC),
+    ]
+    events = [
+        LogEvent(
+            event_id=event_id,
+            timestamp=moments[0],
+            received_at=moments[0],
+            service="day10-reader",
+            environment="test",
+            level=LogLevel.INFO,
+            message="integration source",
+        )
+        for event_id in event_ids
+    ]
+    records = [
+        AnomalyFindingRecord(
+            id=finding_ids[index],
+            event_id=event_ids[index % 2],
+            anomaly_type=("high_latency" if index < 4 else "error_level"),
+            severity=("critical" if index % 2 == 0 else "high"),
+            rule_id=f"day10.rule.{index}.v1",
+            title="Day 10 finding",
+            evidence=[f"index={index}"],
+            created_at=moments[index],
+        )
+        for index in range(6)
+    ]
+
+    async def scenario() -> None:
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id.in_(event_ids))
+            )
+            session.add_all([map_log_event(event) for event in events])
+            await session.flush()
+            session.add_all(records)
+            await session.commit()
+        reader = SqlAlchemyAnomalyFindingReader(factory)
+        first = await reader.list(AnomalyFindingQuery(limit=2))
+        second = await reader.list(
+            AnomalyFindingQuery(limit=2, cursor=first.next_cursor)
+        )
+        third = await reader.list(
+            AnomalyFindingQuery(limit=2, cursor=second.next_cursor)
+        )
+        traversed = [item.id for page in (first, second, third) for item in page.items]
+        assert traversed == [
+            finding_ids[0],
+            finding_ids[2],
+            finding_ids[1],
+            finding_ids[3],
+            finding_ids[4],
+            finding_ids[5],
+        ]
+        assert len(set(traversed)) == 6 and third.next_cursor is None
+        by_event = await reader.list(AnomalyFindingQuery(event_id=event_ids[0]))
+        assert {item.event_id for item in by_event.items} == {event_ids[0]}
+        by_type = await reader.list(
+            AnomalyFindingQuery(anomaly_type=AnomalyType.HIGH_LATENCY)
+        )
+        assert len(by_type.items) == 4
+        by_severity = await reader.list(
+            AnomalyFindingQuery(severity=AnomalySeverity.CRITICAL)
+        )
+        assert len(by_severity.items) == 3
+        by_rule = await reader.list(AnomalyFindingQuery(rule_id="day10.rule.3.v1"))
+        assert [item.id for item in by_rule.items] == [finding_ids[3]]
+        inclusive = await reader.list(
+            AnomalyFindingQuery(start_time=moments[1], end_time=moments[1])
+        )
+        assert [item.id for item in inclusive.items] == [finding_ids[2], finding_ids[1]]
+        combined = await reader.list(
+            AnomalyFindingQuery(
+                event_id=event_ids[0],
+                anomaly_type=AnomalyType.HIGH_LATENCY,
+                severity=AnomalySeverity.CRITICAL,
+                start_time=moments[2],
+                end_time=moments[0],
+            )
+        )
+        assert [item.id for item in combined.items] == [finding_ids[0], finding_ids[2]]
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id.in_(event_ids))
+            )
+            await session.commit()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(engine.dispose())
