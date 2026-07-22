@@ -134,6 +134,28 @@ Source messages and metadata are neither loaded nor returned. Alembic revision
 resolution, assignment, automatic grouping, worker integration, alerting, or LLM
 explanation endpoints.
 
+
+## Explicit incident generation
+
+Day 14 provides a framework-independent `GenerateIncidents` use case for callers that
+explicitly supply an inclusive source-event-time window. The eligible reader joins
+anomalies to source events, excludes already assigned finding UUIDs, and traverses them
+using internal ascending keyset pages:
+
+```text
+event timestamp ASC, finding creation time ASC, finding UUID ASC
+```
+
+The service loads the complete window before one deterministic grouping call, so page
+boundaries cannot split adjacent-gap clusters. Batch size controls reads only. Candidates
+persist sequentially and fail fast. Persistence is atomic per candidate, not across a
+whole run; a retry excludes previously assigned findings and can continue remaining work
+without run records or checkpoints.
+
+This is an internal, explicitly invoked capability. It has no HTTP endpoint, scheduler,
+worker/lifecycle integration, CLI, automatic execution, acknowledgement, resolution,
+alerting, or LLM behavior. Alembic revision `20260722_0003` is required.
+
 ## Quality checks
 
 ```bash

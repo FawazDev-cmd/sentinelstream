@@ -184,3 +184,25 @@ factory, performs no commits, and is replaceable by a database-free injected fak
 Revision 0003 remains required; Day 13 adds no migration. There are no mutation,
 acknowledgement, resolution, assignment, grouping-orchestration, worker, or explanation
 paths.
+
+## Explicit incident generation orchestration
+
+Day 14 adds an explicitly constructed application use case that reads unassigned anomaly
+findings for an inclusive source-event-time window, loads every internal keyset page,
+then invokes the deterministic grouper exactly once. Grouping is deliberately not
+page-local because an adjacent-gap cluster may cross any database page boundary.
+
+The eligible reader joins anomaly findings to source log-event context, excludes rows
+already present in `incident_findings` with `NOT EXISTS`, and orders by source event
+timestamp, finding creation time, then finding UUID ascending. Messages and metadata
+remain outside the application value. The internal cursor is not an HTTP token.
+
+Candidates persist sequentially in grouper order. Each candidate has its own Day 12
+transaction; a complete generation run is not atomic. Execution is fail-fast with no
+retries or compensating deletes. On retry, committed memberships are excluded and
+remaining unassigned findings may be processed. Database uniqueness is final protection
+for concurrent assignment; Day 14 adds no locks or claims.
+
+Nothing invokes generation automatically. There is no scheduler, lifecycle/worker
+integration, HTTP or CLI trigger, background loop, or run-history storage. Revision
+0003 remains required and no migration is added.

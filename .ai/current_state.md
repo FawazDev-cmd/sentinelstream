@@ -1,25 +1,26 @@
-# SentinelStream — Current State
+# SentinelStream â€” Current State
 
 ## Project
 
-SentinelStream is a portfolio-first real-time log intelligence platform that ingests structured logs, persists them asynchronously, retrieves logs and anomalies through stable cursor pagination, detects deterministic anomalies, groups related findings into incident candidates, and persists incidents with deterministic identity and ordered anomaly memberships.
+SentinelStream is a portfolio-first real-time log intelligence platform that ingests structured logs, detects and persists anomalies, groups related findings into deterministic incident candidates, persists incidents atomically, and exposes logs, anomalies, and incidents through safe read-only APIs.
 
 ## Completed Milestones
 
 Completed, committed, and pushed:
 
-* Day 1 — Project Foundation
-* Day 2 — Log Domain Contracts
-* Day 3 — Ingestion Schemas and Normalization
-* Day 4 — Asynchronous Queue and Worker Lifecycle
-* Day 5 — PostgreSQL Persistence Foundation
-* Day 6 — Alembic Migration Foundation
-* Day 7 — Log Query API and Cursor Pagination
-* Day 8 — Single-Event Anomaly Rules Engine
-* Day 9 — Anomaly Persistence and Worker Integration
-* Day 10 — Anomaly Query API and Cursor Pagination
-* Day 11 — Deterministic Incident Grouping Foundation
-* Day 12 — Incident Persistence Foundation
+* Day 1 â€” Project Foundation
+* Day 2 â€” Log Domain Contracts
+* Day 3 â€” Ingestion Schemas and Normalization
+* Day 4 â€” Asynchronous Queue and Worker Lifecycle
+* Day 5 â€” PostgreSQL Persistence Foundation
+* Day 6 â€” Alembic Migration Foundation
+* Day 7 â€” Log Query API and Cursor Pagination
+* Day 8 â€” Single-Event Anomaly Rules Engine
+* Day 9 â€” Anomaly Persistence and Worker Integration
+* Day 10 â€” Anomaly Query API and Cursor Pagination
+* Day 11 â€” Deterministic Incident Grouping Foundation
+* Day 12 â€” Incident Persistence Foundation
+* Day 13 â€” Incident Query API and Cursor Pagination
 
 ## Current Capabilities
 
@@ -34,169 +35,119 @@ SentinelStream currently provides:
 * `GET /api/v1/anomalies`
 * `GET /api/v1/incidents`
 * `GET /api/v1/incidents/{incident_id}`
-* immutable log-event domain values
-* bounded asynchronous ingestion queue
+* bounded asynchronous log ingestion
 * managed background worker
-* PostgreSQL persistence
-* Alembic schema management
+* PostgreSQL log and anomaly persistence
 * deterministic anomaly detection
 * atomic event-and-anomaly persistence
-* deterministic log and anomaly cursor pagination
-* exact anomaly filtering
+* stable keyset pagination
 * deterministic incident grouping
-* adjacent-gap clustering
+* adjacent-gap temporal clustering
 * immutable incident candidates
 * deterministic UUIDv5 incident identity
-* normalized incident and membership persistence
-* ordered incident membership storage
 * atomic incident persistence
-* idempotent repeat persistence
-* one-finding-to-one-incident database enforcement
-* read-only incident list and detail API
-* fixed incident keyset pagination and exact filters
-* ordered safe incident detail memberships
-* Alembic revision 0003
+* ordered incident memberships
+* idempotent incident persistence
+* one-finding-to-one-incident enforcement
+* read-only incident list and detail APIs
+* safe dependency injection
+* Alembic revisions 0001â€“0003
 * 382 passing non-integration tests
+* explicit full-window incident generation orchestration
+* eligible unassigned finding traversal by source event time
 * guarded PostgreSQL integration tests
 * Ruff and strict mypy verification
 
 ## Current Milestone
 
-Phase 6 — Incident Intelligence Foundation
+Phase 6 â€” Incident Intelligence Foundation
 
 ### Active Task
 
-Day 13 — Incident Query API and Cursor Pagination implemented
+Day 14 â€” Incident Generation Orchestration implemented
 
 ## Objective
 
-Expose persisted incidents through safe, deterministic, read-only query paths.
+Connect anomaly selection, deterministic grouping, and incident persistence through one framework-independent application use case.
 
-Day 13 must establish:
+Day 14 must establish:
 
-* immutable persisted-incident read model
-* immutable incident-membership read model
-* incident query criteria
-* incident cursor model and codec
-* narrow incident reader protocol
-* SQLAlchemy incident reader
-* stable keyset pagination
-* exact filtering
-* ordered membership loading
-* typed FastAPI response schemas
-* incident list endpoint
-* incident detail endpoint
-* dependency wiring
+* immutable incident-generation request and result values
+* eligible-anomaly reader contract
+* SQLAlchemy eligible-anomaly reader
+* deterministic incident-generation service
+* explicit batching and temporal-window behavior
+* anomaly-to-grouping-input mapping
+* grouping and persistence orchestration
+* idempotent repeated execution
+* safe partial-progress semantics
 * focused unit tests
+* explicit full-window incident generation orchestration
+* eligible unassigned finding traversal by source event time
 * guarded PostgreSQL integration tests
 * documentation
 
-## Public Endpoints
-
-Add:
+## Target Flow
 
 ```text
-GET /api/v1/incidents
-GET /api/v1/incidents/{incident_id}
+IncidentGenerationRequest
+        â†“
+Read eligible unassigned anomalies
+        â†“
+Map persisted anomaly rows to IncidentGroupingInput
+        â†“
+DeterministicIncidentGrouper
+        â†“
+IncidentCandidate values
+        â†“
+IncidentPersistence
+        â†“
+IncidentGenerationResult
 ```
 
-### List endpoint
+## Eligibility
 
-Returns:
+Day 14 should read only anomaly findings that:
 
-```json
-{
-  "items": [],
-  "next_cursor": null
-}
-```
+* are not already assigned to an incident
+* fall inside the requested source-event time window
+* have valid related log-event context
+* are returned in deterministic order
 
-The list response should contain incident summaries only.
+Eligibility must be based on source event time, not anomaly persistence time.
 
-It must not contain all membership rows by default.
+## Runtime Boundary
 
-### Detail endpoint
+Day 14 creates an application use case only.
 
-Returns:
+It must not be invoked automatically by:
 
-* one persisted incident
-* its ordered anomaly-finding memberships
-* safe anomaly summary fields
+* ingestion workers
+* application startup
+* FastAPI routes
+* schedulers
+* background loops
 
-It must not expose:
-
-* source log message
-* source metadata
-* SQLAlchemy records
-* database credentials
-* raw internal exceptions
-
-## List Ordering
-
-Use fixed ordering:
-
-```text
-last_seen_at DESC
-id DESC
-```
-
-Use keyset pagination only.
-
-Do not use SQL offset pagination.
-
-## List Filters
-
-Support exact filters for:
-
-```text
-service
-environment
-anomaly_type
-highest_severity
-started_after
-started_before
-last_seen_after
-last_seen_before
-minimum_finding_count
-limit
-cursor
-```
-
-Time bounds should be inclusive.
-
-Combined filters use AND semantics.
-
-## Detail Membership Ordering
-
-Memberships must be returned by:
-
-```text
-position ASC
-```
-
-Membership order must match the original incident candidate finding order.
-
-## Day 13 Boundaries
+## Day 14 Boundaries
 
 Do not implement:
 
+* periodic scheduling
+* worker integration
+* lifecycle integration
+* manual API trigger
 * acknowledgement
 * resolution
 * assignment
 * comments
-* incident mutation endpoints
-* incident deletion endpoints
 * alerting
 * notifications
-* automatic grouping orchestration
-* worker integration
-* scheduled grouping
-* LLM explanation
-* statistical incident analysis
-* Day 14 functionality
+* LLM explanations
+* statistical clustering
+* Day 15 functionality
 
 ## Immediate Next Step
 
-Give Codex the complete Day 13 Incident Query API and Cursor Pagination specification.
+Give Codex the complete Day 14 Incident Generation Orchestration specification.
 
-Do not implement Day 14.
+Do not implement Day 15.
