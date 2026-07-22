@@ -127,3 +127,24 @@ Presentation owns `GET /api/v1/anomalies`, typed response schemas, cursor conver
 query validation, and a generic safe 500 response. The endpoint returns no source log
 message, metadata, total count, mutation state, aggregation, or incident information.
 No schema revision was needed beyond `20260722_0002`.
+## Deterministic incident grouping foundation
+
+Day 11 adds framework-independent incident grouping keys and immutable candidate values
+in the domain, with input, policy, protocol, and deterministic grouper behavior in the
+application. Infrastructure and presentation have no incident implementation.
+
+A grouping key contains only service, environment, and anomaly type. Source event time,
+not anomaly persistence time, drives clustering. Persistence time and finding UUID are
+stable tie-breakers after occurrence time. Clustering compares each finding to its
+immediate predecessor, so chains may span longer than the configured maximum gap when
+every adjacent gap remains within it. The exact boundary is inclusive.
+
+The default policy is a five-minute maximum adjacent gap and a minimum of two findings.
+Candidate finding, event, and rule tuples are constructed from the same sorted cluster
+and remain index-aligned. Highest severity uses the existing explicit rank. Duplicate
+finding UUIDs fail the complete call, while duplicate event UUIDs are permitted.
+Candidates are sorted by occurrence bounds, key values, and first finding UUID.
+
+This capability is currently an explicitly invoked pure in-memory service. No worker or
+scheduler invokes it; no candidate is persisted or exposed through an API. There is no
+operational incident status, acknowledgement, resolution, alerting, or LLM explanation.

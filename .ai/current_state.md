@@ -2,33 +2,30 @@
 
 ## Current Status
 
-Days 1–9 are complete and committed. Day 10 adds a read-only cursor-paginated API for
-persisted anomaly findings and remains uncommitted pending review.
+Days 1–10 are complete and committed. Day 11 adds a pure deterministic in-memory
+incident grouping foundation and remains uncommitted pending review.
 
-## Anomaly Query API
+## Incident Grouping Foundation
 
-`GET /api/v1/anomalies` returns typed persisted findings without joining source events
-or exposing log messages or metadata. Supported exact filters are `event_id`,
-`anomaly_type`, `severity`, and `rule_id`. `start_time` and `end_time` apply inclusive
-bounds to the persistence timestamp `created_at`; combined filters use AND semantics.
+`IncidentGroupingInput` combines one immutable persisted anomaly read value with the
+source event's service, environment, and occurrence timestamp. It contains no source
+message, metadata, exception-message content, or ORM object.
 
-Results use fixed `created_at DESC, id DESC` ordering and keyset pagination. The default
-limit is 50, the accepted range is 1–100, and no total count is returned. The opaque
-URL-safe Base64 cursor contains only canonical UTC creation time and finding UUID; it is
-strictly validated but is not encrypted or signed.
+Grouping identity is exactly `(service, environment, anomaly_type)`. Within each
+partition, inputs are sorted by source event timestamp, finding persistence timestamp,
+and finding UUID. Temporal clusters use adjacent gaps: with the default five-minute
+gap, 12:00, 12:04, and 12:08 form one candidate even though the total span is eight
+minutes. A gap exactly equal to five minutes remains grouped; a larger gap splits.
 
-The read model preserves storage/source UUIDs, stable anomaly and severity enums,
-versioned rule IDs, safe evidence tuples, and UTC creation time. Infrastructure performs
-one SELECT through a fresh session, uses `limit + 1`, and maps records explicitly. It
-never commits, joins source logs, uses offset pagination, or disposes the shared engine.
+The default policy requires two findings. Qualifying clusters become immutable
+`IncidentCandidate` values with aligned finding/event/rule tuples, earliest/latest
+source-event times, count, and highest severity selected by explicit severity rank.
+Final candidate ordering is deterministic. Duplicate persisted finding UUIDs are
+rejected before grouping; repeated event UUIDs remain valid.
 
-Production constructs the anomaly and log readers from the same session factory. Tests
-can inject a fake anomaly reader with an injected processor and avoid PostgreSQL.
+## Current Boundary
 
-## Runtime and Persistence Semantics
-
-HTTP 202 ingestion still means queue acceptance only, not detection or commit. Migration
-`20260722_0002` remains required; Day 10 adds no migration. Findings are query-only:
-there is no anomaly creation, mutation, acknowledgement, resolution, count,
-aggregation, incident grouping, rolling-window/statistical detection, alerting,
-explanation generation, LLM use, authentication, or Day 11 functionality.
+Grouping performs no I/O and uses no clock, database, framework, worker, scheduler, or
+network access. Candidates are not persisted and no incident table, migration,
+repository, API, acknowledgement, resolution, assignment, alerting, explanation, LLM
+integration, or Day 12 functionality exists.

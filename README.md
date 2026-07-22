@@ -78,6 +78,21 @@ The endpoint is read-only and returns no source log messages or metadata. Migrat
 `20260722_0002` must be applied. HTTP 202 ingestion remains queue acceptance only. There
 is no acknowledgement, resolution, mutation, aggregation, incident handling, alerting,
 or LLM explanation functionality.
+
+## Deterministic incident grouping
+
+Day 11 provides a pure in-memory grouper for persisted anomaly findings enriched with
+source-event service, environment, and occurrence time. The grouping key is
+`service + environment + anomaly_type`. The default policy requires two findings and
+allows a five-minute adjacent gap.
+
+Adjacent-gap clustering means 12:00, 12:04, and 12:08 remain one candidate. A gap
+exactly at five minutes is included; a larger gap starts another cluster. Candidates
+preserve aligned finding/event/rule tuples, aggregate highest severity by explicit rank,
+and use deterministic ordering. Duplicate finding UUIDs are rejected.
+
+No worker or scheduler invokes grouping yet. Incident candidates are not persisted and
+there is no incident API, acknowledgement, resolution, alerting, or LLM explanation.
 ## Quality checks
 
 ```bash
