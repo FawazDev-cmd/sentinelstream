@@ -235,3 +235,23 @@ The existing eligible reader still excludes assigned findings. This enables near
 unassigned events to enter one generation run but does not extend or merge persisted
 incidents. There is no scheduler or retry. Worker failures propagate at the processing
 boundary; HTTP 202 may already have been returned because it represents queue acceptance.
+
+## Structured processing observability
+
+Day 16 emits structured lifecycle records for processing start, anomaly detection,
+atomic event/anomaly persistence, incident generation, and completion or failure. The
+source event UUID is reused as the stable processing correlation ID. Every lifecycle
+record includes safe service, environment, and event-time context but never the source
+message, metadata, raw payload, database URL, or exception text.
+
+Processing duration uses an injected monotonic clock and is reported in milliseconds.
+Successful completion includes log-style metric fields for logs processed, anomalies
+detected, incidents generated, outcome, and total duration. Failure records preserve
+exception propagation while reporting only the failure stage, exception type, safe
+generic message, and elapsed duration.
+
+The worker emits started, stopping, and stopped lifecycle records and a safe processor
+failure record. This adds visibility only: queue completion, continuation after ordinary
+processing failure, cancellation, shutdown, business ordering, and HTTP 202 semantics
+remain unchanged. There is no metrics endpoint, external telemetry dependency, retry,
+dead-letter queue, or tracing backend.

@@ -7,7 +7,11 @@ from typing import cast
 
 import pytest
 
-from app.application.incidents import GenerateIncidents, IncidentGenerationRequest
+from app.application.incidents import (
+    GenerateIncidents,
+    IncidentGenerationRequest,
+    IncidentGenerationResult,
+)
 from app.application.services.persistence import DetectAndPersistLogEventProcessor
 from app.domain.anomalies import AnomalyFinding, DetectionResult
 from app.domain.logs import LogEvent
@@ -25,12 +29,14 @@ class RecordingGenerator:
         self.failure = failure
         self.requests: list[IncidentGenerationRequest] = []
 
-    async def execute(self, request: IncidentGenerationRequest) -> object:
+    async def execute(
+        self, request: IncidentGenerationRequest
+    ) -> IncidentGenerationResult:
         self.order.append("generation")
         self.requests.append(request)
         if self.failure is not None:
             raise self.failure
-        return object()
+        return IncidentGenerationResult(0, 0, 0, (), 1)
 
 
 class OrderedPersistence(RecordingPersistence):

@@ -174,6 +174,23 @@ All incident-generation adapters reuse the existing application engine and async
 factory. There is no scheduler, lifecycle invocation, background generation task, HTTP
 or CLI trigger, widened window, retry, acknowledgement, resolution, or alerting.
 
+
+## Production processing observability
+
+Each background event now emits structured JSON lifecycle records for processing start,
+anomaly detection, persistence, incident generation, and completion or failure. The
+event UUID is the stable processing correlation ID. Durations use a monotonic clock and
+successful summaries include logs_processed, anomalies_detected, incidents_generated,
+processing_duration_ms, and outcome fields.
+
+Failure records contain the safe stage and exception type while the original exception
+continues through the existing processing boundary. Source messages, metadata, raw
+payloads, secrets, environment variables, and database URLs are not included. Worker
+startup, stopping, and stopped events are also logged.
+
+These are metric-style log fields only. SentinelStream adds no metrics endpoint,
+Prometheus, OpenTelemetry, tracing backend, retry, dead-letter queue, or behavior change.
+
 ## Quality checks
 
 ```bash
