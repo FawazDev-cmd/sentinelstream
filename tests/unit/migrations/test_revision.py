@@ -41,15 +41,16 @@ EXPECTED_INDEXES = {
 
 def revision_module() -> ModuleType:
     files = list(VERSIONS.glob("*.py"))
-    assert len(files) == 1
-    spec = importlib.util.spec_from_file_location("initial_revision", files[0])
+    assert len(files) == 2
+    initial = next(path for path in files if "0001" in path.name)
+    spec = importlib.util.spec_from_file_location("initial_revision", initial)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_exactly_one_initial_revision_with_upgrade_and_downgrade() -> None:
+def test_initial_revision_remains_first_with_upgrade_and_downgrade() -> None:
     module = revision_module()
     assert module.revision == "20260722_0001"
     assert (

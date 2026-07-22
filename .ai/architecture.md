@@ -46,7 +46,7 @@ Day 5 adds a one-method `LogEventRepository` application protocol and `Persisten
 
 The ORM uses `event_metadata` as its Python attribute because `metadata` is reserved by SQLAlchemy declarative models; the physical PostgreSQL column remains `metadata` and uses JSONB. Frozen domain mappings and tuples are explicitly converted to mutable dictionaries and lists.
 
-When no processor is injected, `create_app` constructs one engine, session factory, repository, and persistence processor. Internally created engines are application-owned and disposed during shutdown even after a drain timeout. Day 6 removed startup `create_all`; operators must apply Alembic migrations before starting the application. An externally injected engine is caller-owned and is not initialized or disposed by the application. Injecting a processor bypasses database runtime construction.
+When no processor is injected, `create_app` constructs one engine and session factory for the transactional detection-persistence adapter and log reader. Internally created engines are application-owned and disposed during shutdown even after a drain timeout. Operators must apply Alembic migrations before startup. An external engine remains caller-owned. Injecting a processor bypasses database and detector construction.
 
 Repository operations open one session per event, commit once, roll back ordinary commit failures, and propagate errors. Duplicate UUIDs remain primary-key failures; there are no upserts, retries, dead-letter recovery, or query methods.
 
@@ -81,6 +81,31 @@ metadata are excluded. Default thresholds are 1000 ms high latency, 5000 ms crit
 latency, status 500 server error, and status 550 critical server error, exposed through
 centralized `SENTINELSTREAM_` settings.
 
-Detection remains a standalone in-memory operation. It is not wired into ingestion or
-the worker, is not persisted, and has no public API. No historical, statistical,
+Day 9 wires detection into the background worker and persists findings atomically with the source event. Findings still have no public API. No historical, statistical,
 incident, alerting, explanation, or LLM behavior exists.
+
+## Atomic anomaly persistence and worker integration
+
+Day 9 adds the focused `DetectionPersistence` application port and
+`DetectAndPersistLogEventProcessor`. The processor detects exactly once, verifies the
+result UUID matches the source event, and passes the unchanged event plus every ordered
+finding to persistence. Detection and persistence errors propagate to the existing
+worker boundary, which safely completes the queue task and continues with later events.
+
+`SqlAlchemyDetectionPersistence` owns a fresh session and one transaction per event. It
+adds and flushes the event before mapping findings into the same session; the SQLAlchemy
+transaction context performs the sole commit or automatic rollback. Repositories do not
+commit within this path. Normal events therefore persist without findings, while any
+finding failure rolls back the source event.
+
+Revision `20260722_0002` owns `anomaly_findings`, its UUID primary key, JSONB evidence,
+timezone-aware creation time, source-event foreign key with cascade deletion, four
+single-column indexes, and unique `(event_id, rule_id)` constraint. Downgrading to 0001
+destroys findings but leaves `log_events` intact. Migrations remain explicit operator
+actions.
+
+Default construction uses Day 8 settings and rule order, the rule-based detector, the
+transactional adapter, and the existing single worker. Processor injection bypasses
+database and detector construction. HTTP 202 still represents queue acceptance only.
+There is no anomaly read API, retry, replay, incident logic, rolling-window detection,
+alerting, or LLM explanation behavior.

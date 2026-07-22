@@ -2,52 +2,51 @@
 
 ## Current Status
 
-Days 1–7 are complete and committed. Day 8 implements a standalone deterministic
-single-event anomaly rules engine and remains uncommitted pending review.
+Days 1–8 are complete and committed. Day 9 connects deterministic single-event anomaly
+detection to the background worker and persists each event with all findings atomically.
+Day 9 remains uncommitted pending review.
 
-SentinelStream validates and queues trusted log events, asynchronously persists them to
-PostgreSQL, and exposes cursor-paginated retrieval of persisted events. Day 8 detection
-can evaluate a trusted `LogEvent` directly but is not connected to that runtime flow.
+## Processing Flow
 
-## Day 8 — Single-Event Anomaly Rules Engine
+```text
+HTTP validation → trusted LogEvent → bounded queue → background worker
+→ deterministic detector → one PostgreSQL transaction
+    ├── log_events row
+    └── zero or more anomaly_findings rows
+```
 
-The domain now provides stable anomaly types, explicitly ranked severities, bounded
-immutable findings, and immutable detection results. `DetectionResult` preserves the
-evaluated event UUID and reports whether findings exist plus their highest severity.
+HTTP 202 continues to mean queue acceptance only. It does not confirm detection or
+database commit.
 
-The application provides narrow synchronous rule and detector protocols, an immutable
-validated `DetectionPolicy`, a deterministic `RuleBasedAnomalyDetector`, and explicit
-default rule construction. Duplicate rule IDs and empty rule collections are rejected;
-every configured rule runs exactly once in stable order and unexpected rule failures
-propagate.
+## Day 9 Persistence
 
-The four versioned default rules are:
+`DetectAndPersistLogEventProcessor` calls the detector once, rejects a result whose event
+UUID differs from the source event, then delegates the event and complete ordered
+finding tuple to a focused transactional persistence port.
 
-* `single_event.error_level.v1`
-* `single_event.server_error_status.v1`
-* `single_event.exception_present.v1`
-* `single_event.high_latency.v1`
+`SqlAlchemyDetectionPersistence` creates one session and one transaction per queued
+event. It inserts and flushes the source event before adding findings. The transaction
+context commits once on success and rolls back the event and every finding on failure.
+Normal events commit with zero findings; one anomalous event may commit several.
 
-Default thresholds are 1000 ms for high latency, 5000 ms for critical latency, status
-500 for server errors, and status 550 for critical server errors. Centralized
-`SENTINELSTREAM_` settings expose each threshold and reject invalid or inconsistent
-values.
+`anomaly_findings` stores PostgreSQL UUID identities, source-event foreign keys, stable
+anomaly/severity strings, versioned rule IDs, bounded titles, JSONB evidence arrays, and
+timezone-aware persistence timestamps. `UNIQUE(event_id, rule_id)` prevents duplicate
+rows for the same rule execution. The foreign key uses `ON DELETE CASCADE`.
 
-One event may produce multiple findings. Evidence contains only bounded triggering
-field values and configured thresholds. Log messages, exception-message contents,
-metadata, arbitrary exception objects, and mutable event state are excluded.
+## Migration State
 
-## Runtime Boundary
+Alembic head is `20260722_0002`. Operators must apply it explicitly before starting the
+updated worker. Its downgrade removes `anomaly_findings` and all persisted findings but
+preserves `log_events` and unrelated tables. Application startup never runs migrations
+or `create_all`.
 
-Detector output is not persisted and detection is not connected to ingestion or the
-background worker. No anomaly endpoint, anomaly database model, migration, historical
-or statistical detection, incident logic, alerting, explanation generation, or LLM
-integration exists.
+## Current Boundary
 
-The Day 6 migration remains the only Alembic revision. No dependency was added for Day
-8. Existing ingestion, persistence, migration, query, and API behavior remains
-unchanged.
+Findings are persisted but are not exposed through a public API. The existing log query
+API remains event-only. Worker processing failures are isolated so later events can
+continue, but failed events may be lost because the in-process queue has no retry,
+dead-letter, replay, durable-broker, or outbox behavior.
 
-## Next Milestone
-
-Day 9 is not implemented.
+No anomaly query API, incident grouping, rolling-window/statistical detection, alerting,
+explanation generation, LLM use, authentication, or Day 10 functionality exists.

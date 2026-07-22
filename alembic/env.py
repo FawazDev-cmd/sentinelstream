@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.infrastructure.database.base import Base
 from app.infrastructure.database.migrations import resolve_migration_database_url
-from app.infrastructure.database.models import LogEventRecord
+from app.infrastructure.database.models import AnomalyFindingRecord, LogEventRecord
 
 config = context.config
 if config.config_file_name is not None:
@@ -18,7 +18,7 @@ if config.config_file_name is not None:
 config.set_main_option(
     "sqlalchemy.url", resolve_migration_database_url().replace("%", "%%")
 )
-_ = LogEventRecord
+_ = (AnomalyFindingRecord, LogEventRecord)
 target_metadata = Base.metadata
 
 

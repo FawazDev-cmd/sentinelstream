@@ -9,10 +9,11 @@ from uuid import UUID
 
 import pytest
 from alembic.config import Config
-from sqlalchemy import Table, delete, inspect, text
+from sqlalchemy import Table, delete, func, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine.reflection import Inspector
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from alembic import command
 from app.domain.logs import LogEvent, LogLevel
@@ -21,7 +22,7 @@ from app.infrastructure.database.repository import SqlAlchemyLogEventRepository
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[2]
-REVISION = "20260722_0001"
+REVISION = "20260722_0002"
 EVENT_ID = UUID("00000000-0000-4000-8000-000000006001")
 GUARD_TABLE = "sentinelstream_migration_guard"
 
@@ -218,3 +219,166 @@ def test_reader_filters_order_and_cursor_pagination(
         asyncio.run(scenario())
     finally:
         asyncio.run(engine.dispose())
+
+
+def test_anomaly_migration_atomic_persistence_uniqueness_and_cascade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.application.anomalies import (
+        RuleBasedAnomalyDetector,
+        build_default_anomaly_rules,
+    )
+    from app.application.anomalies.policy import DetectionPolicy
+    from app.domain.anomalies import AnomalyFinding, AnomalySeverity, AnomalyType
+    from app.infrastructure.database.detection_persistence import (
+        SqlAlchemyDetectionPersistence,
+    )
+    from app.infrastructure.database.models import AnomalyFindingRecord
+
+    url = database_url()
+    monkeypatch.setenv("SENTINELSTREAM_DATABASE_URL", url)
+    command.upgrade(alembic_config(), "20260722_0001")
+    command.upgrade(alembic_config(), "head")
+    engine = create_async_engine(url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    normal_id = UUID("00000000-0000-4000-8000-000000009001")
+    anomalous_id = UUID("00000000-0000-4000-8000-000000009002")
+    failed_id = UUID("00000000-0000-4000-8000-000000009003")
+    detector = RuleBasedAnomalyDetector(build_default_anomaly_rules(DetectionPolicy()))
+    persistence = SqlAlchemyDetectionPersistence(factory)
+
+    def make_event(event_id: UUID, *, anomalous: bool) -> LogEvent:
+        return LogEvent(
+            event_id=event_id,
+            timestamp=datetime(2026, 7, 22, 12, tzinfo=UTC),
+            received_at=datetime(2026, 7, 22, 12, 0, 1, tzinfo=UTC),
+            service="day9-integration",
+            environment="test",
+            level=LogLevel.CRITICAL if anomalous else LogLevel.INFO,
+            message="sensitive message",
+            exception_type="TimeoutError" if anomalous else None,
+            exception_message="secret exception text" if anomalous else None,
+            status_code=575 if anomalous else 200,
+            latency_ms=6000 if anomalous else 120,
+            metadata={"secret": "metadata"},
+        )
+
+    async def scenario() -> None:
+        ids = [normal_id, anomalous_id, failed_id]
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id.in_(ids))
+            )
+            await session.commit()
+        normal = make_event(normal_id, anomalous=False)
+        normal_result = detector.detect(normal)
+        await persistence.persist(normal, normal_result.findings)
+        anomalous = make_event(anomalous_id, anomalous=True)
+        anomalous_result = detector.detect(anomalous)
+        await persistence.persist(anomalous, anomalous_result.findings)
+        async with factory() as session:
+            normal_count = await session.scalar(
+                select(func.count())
+                .select_from(AnomalyFindingRecord)
+                .where(AnomalyFindingRecord.event_id == normal_id)
+            )
+            records = list(
+                (
+                    await session.scalars(
+                        select(AnomalyFindingRecord)
+                        .where(AnomalyFindingRecord.event_id == anomalous_id)
+                        .order_by(
+                            AnomalyFindingRecord.created_at, AnomalyFindingRecord.id
+                        )
+                    )
+                ).all()
+            )
+        assert normal_count == 0
+        assert {record.rule_id for record in records} == {
+            finding.rule_id for finding in anomalous_result.findings
+        }
+        assert {record.anomaly_type for record in records} == {
+            finding.anomaly_type.value for finding in anomalous_result.findings
+        }
+        assert all(isinstance(record.evidence, list) for record in records)
+        assert all(
+            "secret exception text" not in " ".join(record.evidence)
+            for record in records
+        )
+        duplicate = AnomalyFinding(
+            AnomalyType.ERROR_LEVEL,
+            AnomalySeverity.HIGH,
+            "duplicate.rule.v1",
+            "Duplicate",
+            ("level=error",),
+        )
+        failed_event = make_event(failed_id, anomalous=False)
+        with pytest.raises(IntegrityError):
+            await persistence.persist(failed_event, (duplicate, duplicate))
+        async with factory() as session:
+            assert await session.get(LogEventRecord, failed_id) is None
+            failed_findings = await session.scalar(
+                select(func.count())
+                .select_from(AnomalyFindingRecord)
+                .where(AnomalyFindingRecord.event_id == failed_id)
+            )
+            assert failed_findings == 0
+        with pytest.raises(IntegrityError):
+            await persistence.persist(anomalous, anomalous_result.findings)
+        async with factory() as session:
+            count_after_reprocess = await session.scalar(
+                select(func.count())
+                .select_from(AnomalyFindingRecord)
+                .where(AnomalyFindingRecord.event_id == anomalous_id)
+            )
+            assert count_after_reprocess == 4
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id == anomalous_id)
+            )
+            await session.commit()
+        async with factory() as session:
+            assert (
+                await session.scalar(
+                    select(func.count())
+                    .select_from(AnomalyFindingRecord)
+                    .where(AnomalyFindingRecord.event_id == anomalous_id)
+                )
+                == 0
+            )
+
+    async def anomaly_table_exists() -> bool:
+        async with engine.connect() as connection:
+            return await connection.run_sync(
+                lambda sync: inspect(sync).has_table("anomaly_findings")
+            )
+
+    async def log_table_and_normal_row_exist() -> tuple[bool, bool]:
+        async with engine.connect() as connection:
+            table_exists = await connection.run_sync(
+                lambda sync: inspect(sync).has_table("log_events")
+            )
+        async with factory() as session:
+            row_exists = await session.get(LogEventRecord, normal_id) is not None
+        return table_exists, row_exists
+
+    try:
+        assert asyncio.run(anomaly_table_exists())
+        asyncio.run(scenario())
+        command.downgrade(alembic_config(), "20260722_0001")
+        assert not asyncio.run(anomaly_table_exists())
+        assert asyncio.run(log_table_and_normal_row_exist()) == (True, True)
+        command.upgrade(alembic_config(), "head")
+        assert asyncio.run(anomaly_table_exists())
+        asyncio.run(_cleanup_day9_rows(factory, [normal_id, anomalous_id, failed_id]))
+    finally:
+        asyncio.run(engine.dispose())
+
+
+async def _cleanup_day9_rows(
+    factory: async_sessionmaker[AsyncSession], event_ids: list[UUID]
+) -> None:
+    async with factory() as session:
+        await session.execute(
+            delete(LogEventRecord).where(LogEventRecord.event_id.in_(event_ids))
+        )
+        await session.commit()

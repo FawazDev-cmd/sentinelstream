@@ -22,53 +22,104 @@ class NoOpProcessor:
         pass
 
 
-def test_default_runtime_creates_persistence_processor_starts_worker_and_disposes(
+def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def scenario() -> None:
         engine = FakeEngine()
-        processors: list[object] = []
-        readers: list[object] = []
+        session_factory = object()
+        policy = object()
+        rules = (object(), object(), object(), object())
+        detector = object()
+        persistence = object()
+        constructed: dict[str, object] = {}
         monkeypatch.setattr(
             main,
             "create_async_engine_from_settings",
             lambda settings: cast(AsyncEngine, cast(Any, engine)),
         )
         monkeypatch.setattr(
-            main, "create_session_factory", lambda active_engine: cast(Any, object())
+            main, "create_session_factory", lambda active: session_factory
+        )
+        monkeypatch.setattr(
+            main,
+            "detection_policy_from_settings",
+            lambda settings: constructed.setdefault("settings", settings) and policy,
+        )
+        monkeypatch.setattr(
+            main,
+            "build_default_anomaly_rules",
+            lambda active_policy: (
+                constructed.setdefault("policy", active_policy) and rules
+            ),
+        )
+        monkeypatch.setattr(
+            main,
+            "RuleBasedAnomalyDetector",
+            lambda active_rules: (
+                constructed.setdefault("rules", active_rules) and detector
+            ),
+        )
+        monkeypatch.setattr(
+            main,
+            "SqlAlchemyDetectionPersistence",
+            lambda factory: (
+                constructed.setdefault("session_factory", factory) and persistence
+            ),
         )
 
-        def processor(repository: object) -> NoOpProcessor:
-            processors.append(repository)
+        def processor(
+            active_detector: object, active_persistence: object
+        ) -> NoOpProcessor:
+            constructed["detector"] = active_detector
+            constructed["persistence"] = active_persistence
             return NoOpProcessor()
 
-        monkeypatch.setattr(main, "PersistenceEventProcessor", processor)
-
-        def reader_factory(session_factory: object) -> object:
-            readers.append(session_factory)
-            return object()
-
-        monkeypatch.setattr(main, "SqlAlchemyLogEventReader", reader_factory)
-        app = main.create_app(Settings(environment="test"))
+        monkeypatch.setattr(main, "DetectAndPersistLogEventProcessor", processor)
+        monkeypatch.setattr(
+            main,
+            "SqlAlchemyLogEventReader",
+            lambda factory: (
+                constructed.setdefault("reader_factory", factory) and object()
+            ),
+        )
+        settings = Settings(environment="test")
+        app = main.create_app(settings)
         async with app.router.lifespan_context(app):
             task = app.state.worker_task
             assert not task.done()
-        assert len(processors) == 1
-        assert len(readers) == 1
-        assert app.state.log_event_reader is not None
+        assert constructed == {
+            "settings": settings,
+            "policy": policy,
+            "rules": rules,
+            "session_factory": session_factory,
+            "detector": detector,
+            "persistence": persistence,
+            "reader_factory": session_factory,
+        }
+        assert len(rules) == 4 and app.state.log_event_reader is not None
         assert engine.disposals == 1 and task.done()
 
     asyncio.run(scenario())
 
 
-def test_injected_processor_bypasses_database_creation(
+def test_injected_processor_bypasses_database_and_detection_creation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        main,
+    for name in (
         "create_async_engine_from_settings",
-        lambda settings: (_ for _ in ()).throw(AssertionError("engine created")),
-    )
+        "detection_policy_from_settings",
+        "build_default_anomaly_rules",
+        "RuleBasedAnomalyDetector",
+        "SqlAlchemyDetectionPersistence",
+    ):
+        monkeypatch.setattr(
+            main,
+            name,
+            lambda *args, _name=name: (_ for _ in ()).throw(
+                AssertionError(f"{_name} called")
+            ),
+        )
     app = main.create_app(
         Settings(environment="test"), event_processor=LoggingEventProcessor()
     )
@@ -87,7 +138,9 @@ def test_external_engine_is_caller_owned(monkeypatch: pytest.MonkeyPatch) -> Non
             main, "create_session_factory", lambda active_engine: cast(Any, object())
         )
         monkeypatch.setattr(
-            main, "PersistenceEventProcessor", lambda repository: NoOpProcessor()
+            main,
+            "DetectAndPersistLogEventProcessor",
+            lambda detector, persistence: NoOpProcessor(),
         )
         app = main.create_app(
             Settings(environment="test"),
@@ -125,7 +178,9 @@ def test_owned_engine_disposes_after_queue_drain_timeout(
             main, "create_session_factory", lambda active_engine: cast(Any, object())
         )
         monkeypatch.setattr(
-            main, "PersistenceEventProcessor", lambda repository: processor
+            main,
+            "DetectAndPersistLogEventProcessor",
+            lambda detector, persistence: processor,
         )
         app = main.create_app(
             Settings(environment="test", worker_shutdown_timeout_seconds=0.01)

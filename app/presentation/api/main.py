@@ -9,15 +9,22 @@ from uuid import UUID
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.application.anomalies import (
+    RuleBasedAnomalyDetector,
+    build_default_anomaly_rules,
+    detection_policy_from_settings,
+)
 from app.application.contracts.clock import Clock, SystemClock
 from app.application.contracts.event_processor import EventProcessor
 from app.application.contracts.event_queue import EventQueue
 from app.application.contracts.reader import LogEventReader
 from app.application.services.ingestion import IngestionService
-from app.application.services.persistence import PersistenceEventProcessor
+from app.application.services.persistence import DetectAndPersistLogEventProcessor
 from app.application.services.worker import EventWorker
+from app.infrastructure.database.detection_persistence import (
+    SqlAlchemyDetectionPersistence,
+)
 from app.infrastructure.database.reader import SqlAlchemyLogEventReader
-from app.infrastructure.database.repository import SqlAlchemyLogEventRepository
 from app.infrastructure.database.runtime import (
     create_async_engine_from_settings,
     create_session_factory,
@@ -52,8 +59,12 @@ def create_app(
         )
         owns_engine = database_engine is None
         session_factory = create_session_factory(active_engine)
-        repository = SqlAlchemyLogEventRepository(session_factory)
-        processor: EventProcessor = PersistenceEventProcessor(repository)
+        policy = detection_policy_from_settings(active_settings)
+        detector = RuleBasedAnomalyDetector(build_default_anomaly_rules(policy))
+        persistence = SqlAlchemyDetectionPersistence(session_factory)
+        processor: EventProcessor = DetectAndPersistLogEventProcessor(
+            detector, persistence
+        )
         if log_event_reader is None:
             log_event_reader = SqlAlchemyLogEventReader(session_factory)
     else:
