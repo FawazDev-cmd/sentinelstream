@@ -20,6 +20,11 @@ from app.application.contracts.event_processor import EventProcessor
 from app.application.contracts.event_queue import EventQueue
 from app.application.contracts.incident_reader import IncidentReader
 from app.application.contracts.reader import LogEventReader
+from app.application.incidents import (
+    DeterministicIncidentGrouper,
+    GenerateIncidents,
+    IncidentGroupingPolicy,
+)
 from app.application.services.ingestion import IngestionService
 from app.application.services.persistence import DetectAndPersistLogEventProcessor
 from app.application.services.worker import EventWorker
@@ -28,6 +33,12 @@ from app.infrastructure.database.anomaly_reader import (
 )
 from app.infrastructure.database.detection_persistence import (
     SqlAlchemyDetectionPersistence,
+)
+from app.infrastructure.database.eligible_incident_reader import (
+    SqlAlchemyEligibleIncidentFindingReader,
+)
+from app.infrastructure.database.incident_persistence import (
+    SqlAlchemyIncidentPersistence,
 )
 from app.infrastructure.database.incident_reader import SqlAlchemyIncidentReader
 from app.infrastructure.database.reader import SqlAlchemyLogEventReader
@@ -72,8 +83,15 @@ def create_app(
         policy = detection_policy_from_settings(active_settings)
         detector = RuleBasedAnomalyDetector(build_default_anomaly_rules(policy))
         persistence = SqlAlchemyDetectionPersistence(session_factory)
+        incident_policy = IncidentGroupingPolicy()
+        incident_generator = GenerateIncidents(
+            SqlAlchemyEligibleIncidentFindingReader(session_factory),
+            DeterministicIncidentGrouper(incident_policy),
+            SqlAlchemyIncidentPersistence(session_factory),
+            incident_policy,
+        )
         processor: EventProcessor = DetectAndPersistLogEventProcessor(
-            detector, persistence
+            detector, persistence, incident_generator
         )
         if log_event_reader is None:
             log_event_reader = SqlAlchemyLogEventReader(session_factory)

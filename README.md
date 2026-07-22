@@ -156,6 +156,25 @@ This is an internal, explicitly invoked capability. It has no HTTP endpoint, sch
 worker/lifecycle integration, CLI, automatic execution, acknowledgement, resolution,
 alerting, or LLM behavior. Alembic revision `20260722_0003` is required.
 
+
+## Automatic incident generation after anomaly persistence
+
+The production event processor now runs this deterministic sequence:
+
+```text
+persist log and anomaly findings
+? generate incidents for that source-event timestamp
+? return processing success
+```
+
+Generation runs synchronously once, only after successful anomaly persistence and only
+when findings exist. The generation request uses the event timestamp for both inclusive
+window bounds. Failures propagate without suppression or retry.
+
+All incident-generation adapters reuse the existing application engine and async session
+factory. There is no scheduler, lifecycle invocation, background generation task, HTTP
+or CLI trigger, widened window, retry, acknowledgement, resolution, or alerting.
+
 ## Quality checks
 
 ```bash

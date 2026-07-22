@@ -206,3 +206,20 @@ for concurrent assignment; Day 14 adds no locks or claims.
 Nothing invokes generation automatically. There is no scheduler, lifecycle/worker
 integration, HTTP or CLI trigger, background loop, or run-history storage. Revision
 0003 remains required and no migration is added.
+
+## Runtime incident generation integration
+
+Day 15 extends the existing event processor sequence to detect anomalies, persist the log
+and findings atomically, then synchronously execute the existing `GenerateIncidents`
+use case before processing returns. Generation is skipped when detection produces no
+findings. Its request uses the persisted source event timestamp as both inclusive bounds,
+so the runtime never widens the generation window.
+
+Production constructs the eligible reader, deterministic grouper, incident persistence,
+and generator from the same shared async session factory already used by detection
+persistence and query readers. No additional engine or factory is created. Generation
+errors propagate through the existing worker failure boundary without suppression or
+retry.
+
+There is no scheduler, startup/lifespan generation, deferred task, concurrent gather,
+HTTP or CLI trigger, retry, lock, lease, acknowledgement, resolution, or alerting.

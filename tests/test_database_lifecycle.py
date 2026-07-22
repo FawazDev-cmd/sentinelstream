@@ -69,10 +69,13 @@ def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
         )
 
         def processor(
-            active_detector: object, active_persistence: object
+            active_detector: object,
+            active_persistence: object,
+            active_generator: object,
         ) -> NoOpProcessor:
             constructed["detector"] = active_detector
             constructed["persistence"] = active_persistence
+            constructed["incident_generator"] = active_generator
             return NoOpProcessor()
 
         monkeypatch.setattr(main, "DetectAndPersistLogEventProcessor", processor)
@@ -95,6 +98,9 @@ def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
         async with app.router.lifespan_context(app):
             task = app.state.worker_task
             assert not task.done()
+        incident_generator = cast(Any, constructed.pop("incident_generator"))
+        assert incident_generator._reader._session_factory is session_factory
+        assert incident_generator._persistence._session_factory is session_factory
         assert constructed == {
             "settings": settings,
             "policy": policy,
@@ -149,7 +155,7 @@ def test_external_engine_is_caller_owned(monkeypatch: pytest.MonkeyPatch) -> Non
         monkeypatch.setattr(
             main,
             "DetectAndPersistLogEventProcessor",
-            lambda detector, persistence: NoOpProcessor(),
+            lambda detector, persistence, generator: NoOpProcessor(),
         )
         app = main.create_app(
             Settings(environment="test"),
@@ -189,7 +195,7 @@ def test_owned_engine_disposes_after_queue_drain_timeout(
         monkeypatch.setattr(
             main,
             "DetectAndPersistLogEventProcessor",
-            lambda detector, persistence: processor,
+            lambda detector, persistence, generator: processor,
         )
         app = main.create_app(
             Settings(environment="test", worker_shutdown_timeout_seconds=0.01)

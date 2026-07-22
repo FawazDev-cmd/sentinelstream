@@ -6,6 +6,10 @@ from app.application.anomalies import AnomalyDetector
 from app.application.contracts.detection_persistence import DetectionPersistence
 from app.application.contracts.repository import LogEventRepository
 from app.application.exceptions import DetectionResultEventMismatchError
+from app.application.incidents.generation import (
+    GenerateIncidents,
+    IncidentGenerationRequest,
+)
 from app.domain.logs import LogEvent
 
 logger = logging.getLogger(__name__)
@@ -35,9 +39,11 @@ class DetectAndPersistLogEventProcessor:
         self,
         detector: AnomalyDetector,
         persistence: DetectionPersistence,
+        incident_generator: GenerateIncidents | None = None,
     ) -> None:
         self._detector = detector
         self._persistence = persistence
+        self._incident_generator = incident_generator
 
     async def process(self, event: LogEvent) -> None:
         result = self._detector.detect(event)
@@ -46,6 +52,10 @@ class DetectAndPersistLogEventProcessor:
                 "detection result event ID does not match source event ID"
             )
         await self._persistence.persist(event, result.findings)
+        if result.findings and self._incident_generator is not None:
+            await self._incident_generator.execute(
+                IncidentGenerationRequest(event.timestamp, event.timestamp)
+            )
         logger.debug(
             "event detection persisted event_id=%s finding_count=%d "
             "highest_severity=%s",
