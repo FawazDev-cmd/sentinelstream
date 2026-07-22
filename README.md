@@ -46,6 +46,23 @@ Supported filters are exact `service`, `environment`, and `level`, with inclusiv
 
 Migrations must be applied before persistence and retrieval. The queue remains process-local and non-durable; persistence failures have no retry or dead-letter recovery.
 
+
+## Deterministic anomaly detection
+
+Day 8 provides a framework-independent detector for one trusted `LogEvent`. Its stable,
+versioned rules evaluate error/critical levels, server-error status, exception-field
+presence, and high latency. The default thresholds are 1000 ms for high latency, 5000
+ms for critical latency, status 500 for server errors, and status 550 for critical
+server errors. Override them with the corresponding `SENTINELSTREAM_` environment
+settings.
+
+Findings and results are immutable, preserve configured rule order, and allow one event
+to produce multiple findings. Evidence contains only bounded triggering fields and
+thresholds; it excludes log messages, exception-message contents, and metadata.
+
+Detection is not connected to the background worker and its output is not persisted.
+There is no anomaly endpoint, historical/statistical detection, incident processing,
+or LLM involvement.
 ## Quality checks
 
 ```bash

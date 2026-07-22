@@ -64,3 +64,23 @@ Day 7 adds immutable application query, cursor, and page values plus the narrow 
 `SqlAlchemyLogEventReader` shares the production session factory, creates a fresh session per call, applies exact and inclusive filters, fetches `limit + 1`, and never commits. Infrastructure explicitly maps ORM records back into domain events and allows invalid persisted data to fail visibly. Presentation validates query parameters and maps malformed cursors to HTTP 422.
 
 No migration was added because revision `20260722_0001` already contains the required timestamp, UUID-primary-key, and composite service/timestamp indexes. No total count, offset pagination, arbitrary ordering, full-text search, or metadata search exists.
+
+## Deterministic single-event anomaly detection
+
+Day 8 adds framework-independent anomaly types, explicitly ranked severities, bounded
+immutable findings, and immutable per-event detection results in the domain. The
+application owns synchronous rule and detector protocols, an immutable validated
+policy, four deterministic rules, explicit default construction, and ordered
+orchestration with duplicate rule-ID rejection.
+
+Default rules run in stable order: `single_event.error_level.v1`,
+`single_event.server_error_status.v1`, `single_event.exception_present.v1`, and
+`single_event.high_latency.v1`. One event may produce all four findings. Evidence names
+only triggering fields and thresholds; event messages, exception-message contents, and
+metadata are excluded. Default thresholds are 1000 ms high latency, 5000 ms critical
+latency, status 500 server error, and status 550 critical server error, exposed through
+centralized `SENTINELSTREAM_` settings.
+
+Detection remains a standalone in-memory operation. It is not wired into ingestion or
+the worker, is not persisted, and has no public API. No historical, statistical,
+incident, alerting, explanation, or LLM behavior exists.
