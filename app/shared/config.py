@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     critical_server_error_min_status: int = Field(default=550, ge=500, le=599)
     database_url: str = "postgresql+asyncpg://sentinelstream:sentinelstream@localhost:5432/sentinelstream"
     database_echo: bool = False
+    incident_generation_lookback_seconds: int = Field(default=3600, ge=1, le=86_400)
     model_config = SettingsConfigDict(
         env_file=".env", env_prefix="SENTINELSTREAM_", extra="ignore"
     )

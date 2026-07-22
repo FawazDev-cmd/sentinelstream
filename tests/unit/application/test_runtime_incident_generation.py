@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import cast
 
 import pytest
@@ -44,7 +45,7 @@ class OrderedPersistence(RecordingPersistence):
         self.order.append("persistence")
 
 
-def test_generation_runs_once_after_persistence_with_exact_event_window() -> None:
+def test_generation_runs_once_after_persistence_with_rolling_event_window() -> None:
     event = complete_event()
     order: list[str] = []
     generator = RecordingGenerator(order)
@@ -56,7 +57,7 @@ def test_generation_runs_once_after_persistence_with_exact_event_window() -> Non
     asyncio.run(processor.process(event))
     assert order == ["persistence", "generation"]
     assert generator.requests == [
-        IncidentGenerationRequest(event.timestamp, event.timestamp)
+        IncidentGenerationRequest(event.timestamp - timedelta(hours=1), event.timestamp)
     ]
 
 
@@ -84,3 +85,23 @@ def test_generation_failure_propagates_without_retry() -> None:
     with pytest.raises(RuntimeError, match="generation failed"):
         asyncio.run(processor.process(event))
     assert len(generator.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "lookback", [timedelta(seconds=1), timedelta(minutes=17), timedelta(days=1)]
+)
+def test_configured_lookback_deterministically_controls_lower_bound(
+    lookback: timedelta,
+) -> None:
+    event = complete_event()
+    generator = RecordingGenerator([])
+    processor = DetectAndPersistLogEventProcessor(
+        RecordingDetector(DetectionResult(event.event_id, (finding(),))),
+        RecordingPersistence(),
+        cast(GenerateIncidents, generator),
+        lookback,
+    )
+    asyncio.run(processor.process(event))
+    assert generator.requests == [
+        IncidentGenerationRequest(event.timestamp - lookback, event.timestamp)
+    ]

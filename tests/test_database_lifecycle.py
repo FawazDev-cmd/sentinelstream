@@ -1,4 +1,5 @@
 import asyncio
+from datetime import timedelta
 from typing import Any, cast
 
 import pytest
@@ -72,10 +73,12 @@ def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
             active_detector: object,
             active_persistence: object,
             active_generator: object,
+            active_lookback: object,
         ) -> NoOpProcessor:
             constructed["detector"] = active_detector
             constructed["persistence"] = active_persistence
             constructed["incident_generator"] = active_generator
+            constructed["incident_lookback"] = active_lookback
             return NoOpProcessor()
 
         monkeypatch.setattr(main, "DetectAndPersistLogEventProcessor", processor)
@@ -99,6 +102,7 @@ def test_default_runtime_builds_detection_pipeline_reader_worker_and_disposes(
             task = app.state.worker_task
             assert not task.done()
         incident_generator = cast(Any, constructed.pop("incident_generator"))
+        assert constructed.pop("incident_lookback") == timedelta(hours=1)
         assert incident_generator._reader._session_factory is session_factory
         assert incident_generator._persistence._session_factory is session_factory
         assert constructed == {
@@ -155,7 +159,7 @@ def test_external_engine_is_caller_owned(monkeypatch: pytest.MonkeyPatch) -> Non
         monkeypatch.setattr(
             main,
             "DetectAndPersistLogEventProcessor",
-            lambda detector, persistence, generator: NoOpProcessor(),
+            lambda detector, persistence, generator, lookback: NoOpProcessor(),
         )
         app = main.create_app(
             Settings(environment="test"),
@@ -195,7 +199,7 @@ def test_owned_engine_disposes_after_queue_drain_timeout(
         monkeypatch.setattr(
             main,
             "DetectAndPersistLogEventProcessor",
-            lambda detector, persistence, generator: processor,
+            lambda detector, persistence, generator, lookback: processor,
         )
         app = main.create_app(
             Settings(environment="test", worker_shutdown_timeout_seconds=0.01)

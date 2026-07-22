@@ -1,6 +1,7 @@
 """Persist trusted events, with optional deterministic anomaly detection."""
 
 import logging
+from datetime import timedelta
 
 from app.application.anomalies import AnomalyDetector
 from app.application.contracts.detection_persistence import DetectionPersistence
@@ -40,10 +41,22 @@ class DetectAndPersistLogEventProcessor:
         detector: AnomalyDetector,
         persistence: DetectionPersistence,
         incident_generator: GenerateIncidents | None = None,
+        incident_generation_lookback: timedelta = timedelta(hours=1),
     ) -> None:
         self._detector = detector
         self._persistence = persistence
         self._incident_generator = incident_generator
+        if not isinstance(incident_generation_lookback, timedelta):
+            raise TypeError("incident_generation_lookback must be a timedelta")
+        if (
+            not timedelta(seconds=1)
+            <= incident_generation_lookback
+            <= timedelta(days=1)
+        ):
+            raise ValueError(
+                "incident_generation_lookback must be between one second and one day"
+            )
+        self._incident_generation_lookback = incident_generation_lookback
 
     async def process(self, event: LogEvent) -> None:
         result = self._detector.detect(event)
@@ -54,7 +67,10 @@ class DetectAndPersistLogEventProcessor:
         await self._persistence.persist(event, result.findings)
         if result.findings and self._incident_generator is not None:
             await self._incident_generator.execute(
-                IncidentGenerationRequest(event.timestamp, event.timestamp)
+                IncidentGenerationRequest(
+                    event.timestamp - self._incident_generation_lookback,
+                    event.timestamp,
+                )
             )
         logger.debug(
             "event detection persisted event_id=%s finding_count=%d "

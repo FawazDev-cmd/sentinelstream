@@ -163,13 +163,12 @@ The production event processor now runs this deterministic sequence:
 
 ```text
 persist log and anomaly findings
-? generate incidents for that source-event timestamp
+? generate incidents for the bounded source-event lookback window
 ? return processing success
 ```
 
 Generation runs synchronously once, only after successful anomaly persistence and only
-when findings exist. The generation request uses the event timestamp for both inclusive
-window bounds. Failures propagate without suppression or retry.
+when findings exist. The inclusive generation window is [event timestamp - configured lookback, event timestamp]. Failures propagate without suppression or retry.
 
 All incident-generation adapters reuse the existing application engine and async session
 factory. There is no scheduler, lifecycle invocation, background generation task, HTTP
@@ -186,3 +185,18 @@ uv run ruff format --check .
 uv run mypy app tests
 git diff --check
 ```
+
+## Runtime incident lookback
+
+`SENTINELSTREAM_INCIDENT_GENERATION_LOOKBACK_SECONDS` configures the deterministic
+runtime window and defaults to 3600 seconds. Valid values are 1 through 86400. The
+processor uses source event time only:
+
+```text
+[event timestamp - configured lookback, event timestamp]
+```
+
+Both bounds are inclusive. Already assigned findings remain excluded, and the grouper
+does not extend or merge existing incidents. Generation has no scheduler or retry.
+Because HTTP 202 means queue acceptance, a response may already have been returned before
+the worker encounters an anomaly-persistence or incident-generation failure.

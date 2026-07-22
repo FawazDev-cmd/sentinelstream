@@ -1,4 +1,4 @@
-﻿# Architecture
+# Architecture
 
 ## Direction
 
@@ -32,7 +32,7 @@ dependencies.
 
 Day 3 keeps external schemas in presentation and converts them to an application `IngestionInput`. The application `IngestionService` owns explicit provider-level aliases, UUID selection, clock use, UTC normalization, and construction of the domain `LogEvent`. FastAPI resolves the service from application state populated by `create_app`, allowing deterministic injection without global mutable business state.
 
-The application-level `Clock` protocol separates server receipt time from wall-clock access. `SystemClock` returns UTC; the service still validates awareness and normalizes any aware clock value to UTC. The Day 3 terminal behavior returns the constructed event onlyâ€”there is no queue or persistence.
+The application-level `Clock` protocol separates server receipt time from wall-clock access. `SystemClock` returns UTC; the service still validates awareness and normalizes any aware clock value to UTC. The Day 3 terminal behavior returns the constructed event only—there is no queue or persistence.
 
 ## In-process queue and worker lifecycle
 
@@ -212,8 +212,7 @@ integration, HTTP or CLI trigger, background loop, or run-history storage. Revis
 Day 15 extends the existing event processor sequence to detect anomalies, persist the log
 and findings atomically, then synchronously execute the existing `GenerateIncidents`
 use case before processing returns. Generation is skipped when detection produces no
-findings. Its request uses the persisted source event timestamp as both inclusive bounds,
-so the runtime never widens the generation window.
+findings. Its inclusive request window is [source event timestamp - configured lookback, source event timestamp] and uses no wall clock.
 
 Production constructs the eligible reader, deterministic grouper, incident persistence,
 and generator from the same shared async session factory already used by detection
@@ -223,3 +222,16 @@ retry.
 
 There is no scheduler, startup/lifespan generation, deferred task, concurrent gather,
 HTTP or CLI trigger, retry, lock, lease, acknowledgement, resolution, or alerting.
+
+## Runtime incident window correction
+
+The runtime composition converts the validated
+`incident_generation_lookback_seconds` setting into a timedelta once and injects it
+into the event processor. Valid configuration is 1 through 86400 seconds, defaulting to
+3600. After anomaly persistence, the processor synchronously requests the inclusive
+event-time window `[event.timestamp - lookback, event.timestamp]`.
+
+The existing eligible reader still excludes assigned findings. This enables nearby
+unassigned events to enter one generation run but does not extend or merge persisted
+incidents. There is no scheduler or retry. Worker failures propagate at the processing
+boundary; HTTP 202 may already have been returned because it represents queue acceptance.

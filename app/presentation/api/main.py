@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import FastAPI
@@ -91,7 +92,10 @@ def create_app(
             incident_policy,
         )
         processor: EventProcessor = DetectAndPersistLogEventProcessor(
-            detector, persistence, incident_generator
+            detector,
+            persistence,
+            incident_generator,
+            timedelta(seconds=active_settings.incident_generation_lookback_seconds),
         )
         if log_event_reader is None:
             log_event_reader = SqlAlchemyLogEventReader(session_factory)
