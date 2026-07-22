@@ -1,4 +1,4 @@
-﻿# SentinelStream
+# SentinelStream
 
 SentinelStream validates individual log events, places them into a bounded non-durable
 queue, detects deterministic single-event anomalies in the background worker, and
@@ -110,6 +110,30 @@ logs and anomaly findings.
 Incident persistence is not invoked automatically. There is no grouping scheduler,
 worker integration, incident API, acknowledgement, resolution, assignment, alerting, or
 LLM explanation functionality.
+
+## Query persisted incidents
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/incidents"
+curl "http://127.0.0.1:8000/api/v1/incidents?service=payments-api"
+curl "http://127.0.0.1:8000/api/v1/incidents?highest_severity=critical&limit=20"
+curl "http://127.0.0.1:8000/api/v1/incidents?cursor=<opaque>"
+curl "http://127.0.0.1:8000/api/v1/incidents/<incident_uuid>"
+```
+
+List ordering is fixed to `last_seen_at DESC, id DESC` and uses opaque keyset cursors
+containing those two values. Exact filters combine with AND semantics; started and
+last-seen time bounds are inclusive, and `minimum_finding_count` is at least two.
+Limits range from 1 to 100 and default to 50. Responses contain no total count and the
+reader uses no SQL offset.
+
+Detail findings preserve zero-based membership order and expose safe anomaly identity,
+classification, rule, title, evidence, event correlation, and persistence time only.
+Source messages and metadata are neither loaded nor returned. Alembic revision
+`20260722_0003` is required. There are no incident mutation, acknowledgement,
+resolution, assignment, automatic grouping, worker integration, alerting, or LLM
+explanation endpoints.
+
 ## Quality checks
 
 ```bash

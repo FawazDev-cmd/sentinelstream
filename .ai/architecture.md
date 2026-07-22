@@ -165,3 +165,22 @@ Revision `20260722_0003` owns the incident tables, occurrence/count/position che
 focused indexes, cascade incident deletion, and restricted assigned-finding deletion.
 Downgrade preserves revision 0002 log and anomaly objects. No worker, lifespan,
 scheduler, or presentation dependency constructs or invokes incident persistence.
+## Incident query API and cursor pagination
+
+Day 13 exposes persisted incidents through read-only list and detail endpoints. The list
+uses fixed `last_seen_at DESC, id DESC` ordering, matching keyset predicates, and an
+opaque cursor containing only the final returned incident's timestamp and UUID. It
+fetches `limit + 1`, returns no total count, and never uses offset pagination.
+
+Exact service, environment, anomaly type, and highest-severity filters combine with
+inclusive occurrence-time bounds and minimum finding count. Detail loading uses one
+incident SELECT and one explicit membership-to-anomaly join ordered by zero-based
+position. Mapping rejects incomplete, duplicated, noncontiguous, mismatched, unknown-
+enum, or naive-timestamp state.
+
+Responses expose incident summaries and safe persisted anomaly fields only. They never
+load or expose source messages or metadata. The reader shares the existing session
+factory, performs no commits, and is replaceable by a database-free injected fake.
+Revision 0003 remains required; Day 13 adds no migration. There are no mutation,
+acknowledgement, resolution, assignment, grouping-orchestration, worker, or explanation
+paths.

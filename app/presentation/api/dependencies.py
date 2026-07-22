@@ -3,6 +3,7 @@
 from fastapi import Request
 
 from app.application.contracts.anomaly_reader import AnomalyFindingReader
+from app.application.contracts.incident_reader import IncidentReader
 from app.application.contracts.reader import LogEventReader
 from app.application.services.ingestion import IngestionService
 
@@ -23,4 +24,11 @@ def get_anomaly_finding_reader(request: Request) -> AnomalyFindingReader:
     reader: AnomalyFindingReader | None = request.app.state.anomaly_finding_reader
     if reader is None:
         raise RuntimeError("anomaly finding reader is not configured")
+    return reader
+
+
+def get_incident_reader(request: Request) -> IncidentReader:
+    reader: IncidentReader | None = request.app.state.incident_reader
+    if reader is None:
+        raise RuntimeError("incident reader is not configured")
     return reader

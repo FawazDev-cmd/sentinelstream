@@ -666,3 +666,156 @@ def test_incident_migration_persistence_idempotency_constraints_and_downgrade(
         asyncio.run(cleanup())
     finally:
         asyncio.run(engine.dispose())
+
+
+def test_incident_reader_order_filters_pagination_and_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import timedelta
+
+    from app.application.queries.incidents import IncidentQuery
+    from app.domain.anomalies import AnomalySeverity, AnomalyType
+    from app.infrastructure.database.incident_reader import SqlAlchemyIncidentReader
+    from app.infrastructure.database.models import (
+        AnomalyFindingRecord,
+        IncidentFindingRecord,
+        IncidentRecord,
+    )
+
+    url = database_url()
+    monkeypatch.setenv("SENTINELSTREAM_DATABASE_URL", url)
+    command.upgrade(alembic_config(), "head")
+    engine = create_async_engine(url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    base = datetime(2026, 7, 22, 15, tzinfo=UTC)
+    event_ids = tuple(UUID(int=13000 + index) for index in range(6))
+    incident_ids = tuple(UUID(int=13100 + index) for index in range(3))
+    finding_ids = tuple(UUID(int=13200 + index) for index in range(6))
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add_all(
+                [
+                    LogEventRecord(
+                        event_id=event_id,
+                        timestamp=base,
+                        received_at=base,
+                        service="day13",
+                        environment="test",
+                        level="ERROR",
+                        message="private source",
+                        exception_type=None,
+                        exception_message=None,
+                        latency_ms=None,
+                        status_code=None,
+                        trace_id=None,
+                        request_id=None,
+                        host=None,
+                        event_metadata={"private": True},
+                    )
+                    for event_id in event_ids
+                ]
+            )
+            await session.flush()
+            session.add_all(
+                [
+                    AnomalyFindingRecord(
+                        id=finding_ids[index],
+                        event_id=event_ids[index],
+                        anomaly_type="high_latency",
+                        severity=("critical", "high", "medium")[index // 2],
+                        rule_id=f"day13.{index}.v1",
+                        title="Safe finding",
+                        evidence=[f"index={index}"],
+                        created_at=base,
+                    )
+                    for index in range(6)
+                ]
+            )
+            await session.flush()
+            for index, incident_id in enumerate(incident_ids):
+                seen = base - timedelta(minutes=index * 5)
+                session.add(
+                    IncidentRecord(
+                        id=incident_id,
+                        service=("payments", "payments", "catalog")[index],
+                        environment=("prod", "test", "prod")[index],
+                        anomaly_type="high_latency",
+                        started_at=seen - timedelta(minutes=1),
+                        last_seen_at=seen,
+                        finding_count=2,
+                        highest_severity=("critical", "high", "medium")[index],
+                        created_at=base,
+                    )
+                )
+                await session.flush()
+                session.add_all(
+                    [
+                        IncidentFindingRecord(
+                            incident_id=incident_id,
+                            finding_id=finding_ids[index * 2 + position],
+                            position=position,
+                            created_at=base,
+                        )
+                        for position in range(2)
+                    ]
+                )
+            await session.commit()
+
+        reader = SqlAlchemyIncidentReader(factory)
+        first = await reader.list(IncidentQuery(limit=1))
+        second = await reader.list(IncidentQuery(limit=1, cursor=first.next_cursor))
+        third = await reader.list(IncidentQuery(limit=1, cursor=second.next_cursor))
+        assert [first.items[0].id, second.items[0].id, third.items[0].id] == list(
+            incident_ids
+        )
+        assert third.next_cursor is None
+        assert [
+            item.id
+            for item in (await reader.list(IncidentQuery(service="payments"))).items
+        ] == list(incident_ids[:2])
+        assert [
+            item.id
+            for item in (await reader.list(IncidentQuery(environment="test"))).items
+        ] == [incident_ids[1]]
+        assert [
+            item.id
+            for item in (
+                await reader.list(
+                    IncidentQuery(
+                        anomaly_type=AnomalyType.HIGH_LATENCY,
+                        highest_severity=AnomalySeverity.CRITICAL,
+                    )
+                )
+            ).items
+        ] == [incident_ids[0]]
+        assert (
+            len(
+                (
+                    await reader.list(
+                        IncidentQuery(
+                            started_after=base - timedelta(minutes=6),
+                            last_seen_before=base,
+                            minimum_finding_count=2,
+                        )
+                    )
+                ).items
+            )
+            == 2
+        )
+        detail = await reader.get(incident_ids[0])
+        assert detail is not None
+        assert [item.position for item in detail.findings] == [0, 1]
+        assert [item.event_id for item in detail.findings] == list(event_ids[:2])
+        assert await reader.get(UUID(int=13999)) is None
+
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id.in_(event_ids))
+            )
+            await session.commit()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(engine.dispose())
