@@ -34,7 +34,11 @@ def revision_module() -> ModuleType:
 
 def test_revision_chain_has_exactly_two_ordered_revisions() -> None:
     files = sorted((ROOT / "alembic" / "versions").glob("*.py"))
-    assert [path.name[:13] for path in files] == ["20260722_0001", "20260722_0002"]
+    assert [path.name[:13] for path in files] == [
+        "20260722_0001",
+        "20260722_0002",
+        "20260722_0003",
+    ]
     module = revision_module()
     assert module.revision == "20260722_0002"
     assert module.down_revision == "20260722_0001"

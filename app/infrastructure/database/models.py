@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -101,6 +102,70 @@ class AnomalyFindingRecord(Base):
     rule_id: Mapped[str] = mapped_column(String(RULE_ID_MAX_LENGTH), nullable=False)
     title: Mapped[str] = mapped_column(String(TITLE_MAX_LENGTH), nullable=False)
     evidence: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class IncidentRecord(Base):
+    __tablename__ = "incidents"
+    __table_args__ = (
+        CheckConstraint("finding_count >= 2", name="ck_incidents_finding_count"),
+        CheckConstraint(
+            "started_at <= last_seen_at", name="ck_incidents_occurrence_range"
+        ),
+        Index("ix_incidents_started_at", "started_at"),
+        Index("ix_incidents_last_seen_at", "last_seen_at"),
+        Index("ix_incidents_highest_severity", "highest_severity"),
+        Index("ix_incidents_service", "service"),
+        Index("ix_incidents_environment", "environment"),
+        Index("ix_incidents_anomaly_type", "anomaly_type"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    service: Mapped[str] = mapped_column(String(SERVICE_MAX_LENGTH), nullable=False)
+    environment: Mapped[str] = mapped_column(
+        String(ENVIRONMENT_MAX_LENGTH), nullable=False
+    )
+    anomaly_type: Mapped[str] = mapped_column(
+        String(ANOMALY_TYPE_MAX_LENGTH), nullable=False
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finding_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    highest_severity: Mapped[str] = mapped_column(
+        String(ANOMALY_SEVERITY_MAX_LENGTH), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class IncidentFindingRecord(Base):
+    __tablename__ = "incident_findings"
+    __table_args__ = (
+        UniqueConstraint(
+            "incident_id", "position", name="uq_incident_findings_incident_position"
+        ),
+        UniqueConstraint("finding_id", name="uq_incident_findings_finding"),
+        CheckConstraint("position >= 0", name="ck_incident_findings_position"),
+    )
+
+    incident_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("incidents.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    finding_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("anomaly_findings.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

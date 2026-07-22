@@ -148,3 +148,20 @@ Candidates are sorted by occurrence bounds, key values, and first finding UUID.
 This capability is currently an explicitly invoked pure in-memory service. No worker or
 scheduler invokes it; no candidate is persisted or exposed through an API. There is no
 operational incident status, acknowledgement, resolution, alerting, or LLM explanation.
+## Incident persistence foundation
+
+Day 12 adds deterministic UUIDv5 incident identity and a narrow `IncidentPersistence`
+application port. Identity uses length-delimited service/environment values, stable
+anomaly type, canonical UTC occurrence bounds, and ordered finding UUIDs. It performs no
+I/O or clock access and excludes severity, rule IDs, evidence, and persistence time.
+
+Infrastructure maps each candidate into one `IncidentRecord` plus zero-based ordered
+`IncidentFindingRecord` rows. One fresh session and transaction adds and flushes the
+incident before all memberships. Sequential identical persistence strictly verifies the
+stored immutable incident and membership sequence before returning the same UUID.
+Mismatches fail visibly; uniqueness on finding UUID prevents cross-incident assignment.
+
+Revision `20260722_0003` owns the incident tables, occurrence/count/position checks,
+focused indexes, cascade incident deletion, and restricted assigned-finding deletion.
+Downgrade preserves revision 0002 log and anomaly objects. No worker, lifespan,
+scheduler, or presentation dependency constructs or invokes incident persistence.

@@ -93,6 +93,23 @@ and use deterministic ordering. Duplicate finding UUIDs are rejected.
 
 No worker or scheduler invokes grouping yet. Incident candidates are not persisted and
 there is no incident API, acknowledgement, resolution, alerting, or LLM explanation.
+
+## Incident persistence foundation
+
+Day 12 persists immutable incident candidates using deterministic UUIDv5 identities.
+Identity includes service, environment, anomaly type, canonical UTC occurrence bounds,
+and ordered finding UUIDs. One transaction stores the incident and zero-based ordered
+memberships. Repeating an identical candidate returns the same UUID without duplicates;
+conflicting stored state fails explicitly.
+
+Apply Alembic revision `20260722_0003`. One anomaly finding may belong to only one
+persisted incident. Incident deletion cascades memberships, while deletion of an
+assigned finding is restricted. Downgrading to 0002 removes incident data but preserves
+logs and anomaly findings.
+
+Incident persistence is not invoked automatically. There is no grouping scheduler,
+worker integration, incident API, acknowledgement, resolution, assignment, alerting, or
+LLM explanation functionality.
 ## Quality checks
 
 ```bash

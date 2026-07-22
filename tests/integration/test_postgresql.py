@@ -22,7 +22,7 @@ from app.infrastructure.database.repository import SqlAlchemyLogEventRepository
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[2]
-REVISION = "20260722_0002"
+REVISION = "20260722_0003"
 EVENT_ID = UUID("00000000-0000-4000-8000-000000006001")
 GUARD_TABLE = "sentinelstream_migration_guard"
 
@@ -497,5 +497,172 @@ def test_anomaly_reader_filters_order_and_cursor_pagination(
 
     try:
         asyncio.run(scenario())
+    finally:
+        asyncio.run(engine.dispose())
+
+
+def test_incident_migration_persistence_idempotency_constraints_and_downgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.application.incidents.exceptions import IncidentFindingAlreadyAssignedError
+    from app.application.incidents.identity import build_incident_id
+    from app.domain.anomalies import AnomalySeverity, AnomalyType
+    from app.domain.incidents import IncidentCandidate, IncidentGroupingKey
+    from app.infrastructure.database.incident_persistence import (
+        SqlAlchemyIncidentPersistence,
+    )
+    from app.infrastructure.database.models import (
+        AnomalyFindingRecord,
+        IncidentFindingRecord,
+        IncidentRecord,
+    )
+
+    url = database_url()
+    monkeypatch.setenv("SENTINELSTREAM_DATABASE_URL", url)
+    command.upgrade(alembic_config(), "head")
+    engine = create_async_engine(url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    event_id = UUID(int=12001)
+    finding_ids = (UUID(int=12101), UUID(int=12102), UUID(int=12103))
+    moment = datetime(2026, 7, 22, 12, tzinfo=UTC)
+    candidate = IncidentCandidate(
+        key=IncidentGroupingKey("day12", "test", AnomalyType.HIGH_LATENCY),
+        finding_ids=finding_ids,
+        event_ids=(event_id, event_id, event_id),
+        rule_ids=("day12.one.v1", "day12.two.v1", "day12.three.v1"),
+        started_at=moment,
+        last_seen_at=moment,
+        finding_count=3,
+        highest_severity=AnomalySeverity.CRITICAL,
+    )
+
+    async def prepare_and_persist() -> None:
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id == event_id)
+            )
+            session.add(
+                LogEventRecord(
+                    event_id=event_id,
+                    timestamp=moment,
+                    received_at=moment,
+                    service="day12",
+                    environment="test",
+                    level="ERROR",
+                    message="source",
+                    exception_type=None,
+                    exception_message=None,
+                    latency_ms=None,
+                    status_code=None,
+                    trace_id=None,
+                    request_id=None,
+                    host=None,
+                    event_metadata={},
+                )
+            )
+            await session.flush()
+            session.add_all(
+                [
+                    AnomalyFindingRecord(
+                        id=finding_id,
+                        event_id=event_id,
+                        anomaly_type="high_latency",
+                        severity="critical",
+                        rule_id=f"day12.{index}.v1",
+                        title="Finding",
+                        evidence=[f"index={index}"],
+                        created_at=moment,
+                    )
+                    for index, finding_id in enumerate(finding_ids)
+                ]
+            )
+            await session.commit()
+        persistence = SqlAlchemyIncidentPersistence(factory)
+        first = await persistence.persist(candidate)
+        second = await persistence.persist(candidate)
+        assert first == second == build_incident_id(candidate)
+        async with factory() as session:
+            assert (
+                await session.scalar(select(func.count()).select_from(IncidentRecord))
+                == 1
+            )
+            memberships = list(
+                (
+                    await session.scalars(
+                        select(IncidentFindingRecord)
+                        .where(IncidentFindingRecord.incident_id == first)
+                        .order_by(IncidentFindingRecord.position)
+                    )
+                ).all()
+            )
+            assert [(row.finding_id, row.position) for row in memberships] == list(
+                zip(finding_ids, range(3), strict=True)
+            )
+        conflict = IncidentCandidate(
+            key=IncidentGroupingKey("other", "test", AnomalyType.HIGH_LATENCY),
+            finding_ids=(finding_ids[0], UUID(int=12104)),
+            event_ids=(event_id, event_id),
+            rule_ids=("other.one", "other.two"),
+            started_at=moment,
+            last_seen_at=moment,
+            finding_count=2,
+            highest_severity=AnomalySeverity.HIGH,
+        )
+        async with factory() as session:
+            session.add(
+                AnomalyFindingRecord(
+                    id=UUID(int=12104),
+                    event_id=event_id,
+                    anomaly_type="high_latency",
+                    severity="high",
+                    rule_id="day12.4.v1",
+                    title="Finding",
+                    evidence=["index=4"],
+                    created_at=moment,
+                )
+            )
+            await session.commit()
+        with pytest.raises(IncidentFindingAlreadyAssignedError):
+            await persistence.persist(conflict)
+        async with factory() as session:
+            assert (
+                await session.get(IncidentRecord, build_incident_id(conflict)) is None
+            )
+            await session.execute(
+                delete(IncidentRecord).where(IncidentRecord.id == first)
+            )
+            await session.commit()
+            assert (
+                await session.scalar(
+                    select(func.count()).select_from(IncidentFindingRecord)
+                )
+                == 0
+            )
+
+    async def table_state() -> tuple[bool, bool, bool, bool]:
+        async with engine.connect() as connection:
+            return await connection.run_sync(
+                lambda sync: (
+                    inspect(sync).has_table("incidents"),
+                    inspect(sync).has_table("incident_findings"),
+                    inspect(sync).has_table("log_events"),
+                    inspect(sync).has_table("anomaly_findings"),
+                )
+            )
+
+    async def cleanup() -> None:
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id == event_id)
+            )
+            await session.commit()
+
+    try:
+        asyncio.run(prepare_and_persist())
+        command.downgrade(alembic_config(), "20260722_0002")
+        assert asyncio.run(table_state()) == (False, False, True, True)
+        command.upgrade(alembic_config(), "head")
+        assert asyncio.run(table_state()) == (True, True, True, True)
+        asyncio.run(cleanup())
     finally:
         asyncio.run(engine.dispose())

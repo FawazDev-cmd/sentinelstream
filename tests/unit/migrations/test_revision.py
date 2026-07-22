@@ -41,7 +41,7 @@ EXPECTED_INDEXES = {
 
 def revision_module() -> ModuleType:
     files = list(VERSIONS.glob("*.py"))
-    assert len(files) == 2
+    assert len(files) == 3
     initial = next(path for path in files if "0001" in path.name)
     spec = importlib.util.spec_from_file_location("initial_revision", initial)
     assert spec and spec.loader
