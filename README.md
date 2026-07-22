@@ -1,36 +1,28 @@
 ﻿# SentinelStream
 
-SentinelStream is a portfolio-first, real-time log intelligence platform. The repository currently includes the application foundation, log domain contracts, and a non-durable single-event ingestion boundary.
+SentinelStream is a portfolio-first log intelligence project. It currently exposes validated single-event ingestion backed by a bounded in-process asynchronous queue and one managed background worker.
 
-> SentinelStream is under active development. The ingestion endpoint validates and normalizes events but does not queue or persist them. Asynchronous processing, persistence, anomaly detection, incidents, and dashboards are not implemented.
+## Current ingestion semantics
 
-## Architecture principles
+`POST /api/v1/logs` validates and normalizes a structured log into the trusted domain model. HTTP 202 means the event was successfully placed into the in-process queue. Publication is non-blocking; when capacity is exhausted, the endpoint returns HTTP 503.
 
-- Keep domain logic independent of frameworks and infrastructure.
-- Make configuration and application construction explicit and testable.
-- Maintain a one-way dependency direction from adapters toward core contracts.
-- Add modules only when a milestone needs them.
-- Prefer deterministic behavior and evidence-based explanations.
+The background worker sends queued events to an asynchronous processor. Processor failures are safely logged and isolated so later events can continue. Shutdown attempts to drain queued work for a bounded period before cancelling and awaiting the worker.
 
-## Approved stack
+This queue is not durable or distributed. Queued or processing events may be lost if the process crashes or is forcibly terminated. There is no persistence, anomaly detection, incident generation, retry, or dead-letter behavior.
 
-Python 3.13, uv, FastAPI, Uvicorn, Pydantic, pydantic-settings, standard-library logging, pytest, HTTPX, Ruff, and mypy.
+`GET /health` reports process health and configured service identity only.
+
+## Configuration
+
+- `SENTINELSTREAM_EVENT_QUEUE_MAX_SIZE` controls the maximum events held in memory; default `1000`.
+- `SENTINELSTREAM_WORKER_SHUTDOWN_TIMEOUT_SECONDS` controls the maximum graceful shutdown drain duration; default `10`.
 
 ## Setup
 
-Install uv using an official installation method, then install the project:
-
 ```bash
 uv sync
-```
-
-Copy `.env.example` to `.env` if local overrides are needed. Start the development server with:
-
-```bash
 uv run uvicorn app.presentation.api.main:app --reload
 ```
-
-`GET http://127.0.0.1:8000/health` reports process health and configured service identity. `POST http://127.0.0.1:8000/api/v1/logs` validates one structured log and returns a non-durable HTTP 202 acceptance response.
 
 ## Quality checks
 
@@ -39,6 +31,5 @@ uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy app tests
+git diff --check
 ```
-
-To apply formatting during development, run `uv run ruff format .`.

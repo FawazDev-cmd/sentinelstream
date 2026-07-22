@@ -1,43 +1,29 @@
 ﻿# SentinelStream — Current State
 
-## Project
-
-SentinelStream is a portfolio-first, real-time log intelligence platform.
-
 ## Current Status
 
-Days 1, 2, and 3 are complete. The project now provides:
+Days 1–4 are complete. SentinelStream currently provides validated single-event ingestion into a bounded, non-durable, in-process asynchronous queue.
 
-- Python 3.13 project configuration through uv
-- FastAPI application factory and `GET /health`
-- structured logging and centralized settings
-- framework-independent `LogEvent` and `LogLevel` domain contracts
-- strict external log request and typed acceptance response schemas
-- explicit case-insensitive log-level alias normalization
-- UTC-normalized event and server-controlled receipt timestamps
-- injectable clock and UUID generation
-- `POST /api/v1/logs` returning non-durable HTTP 202 acceptance
-- deterministic unit and API tests
-- Ruff and strict mypy verification
+## Day 4 — Asynchronous Queue and Worker Lifecycle
 
-## Completed Milestone
-
-Day 3 — Ingestion Schemas and Normalization
-
-The ingestion flow is:
+The implemented flow is:
 
 ```text
 HTTP JSON request
         ↓
 Pydantic request validation
         ↓
-Application ingestion service
+IngestionService normalization and LogEvent construction
         ↓
-Explicit level/UTC/identifier normalization
+Non-blocking publication to bounded in-process queue
         ↓
-Trusted LogEvent domain object
+One lifespan-managed background worker
         ↓
-HTTP 202 acceptance response
+Injected asynchronous EventProcessor
 ```
 
-No queue, worker, persistence, anomaly detection, incident generation, or durable acceptance exists yet. Day 4 may add asynchronous queue submission at the application service boundary.
+HTTP 202 means the trusted event successfully entered the in-process queue. It does not mean processing or persistence completed. Queue exhaustion returns HTTP 503 without dropping or replacing an already queued event.
+
+The worker isolates and safely logs ordinary processor failures, marks every dequeued item complete, and continues with later events. Shutdown attempts graceful queue draining for the configured bounded duration, then cancels and awaits the worker cleanly.
+
+The queue is not durable or distributed. Queued or processing events may be lost on process crashes or forced termination. There is no persistence, anomaly detection, incident generation, retry, dead-letter queue, or Day 5 functionality.

@@ -33,3 +33,9 @@ dependencies.
 Day 3 keeps external schemas in presentation and converts them to an application `IngestionInput`. The application `IngestionService` owns explicit provider-level aliases, UUID selection, clock use, UTC normalization, and construction of the domain `LogEvent`. FastAPI resolves the service from application state populated by `create_app`, allowing deterministic injection without global mutable business state.
 
 The application-level `Clock` protocol separates server receipt time from wall-clock access. `SystemClock` returns UTC; the service still validates awareness and normalizes any aware clock value to UTC. The Day 3 terminal behavior returns the constructed event only—there is no queue or persistence.
+
+## In-process queue and worker lifecycle
+
+Day 4 adds application protocols for trusted-event queueing and asynchronous processing. `InMemoryEventQueue` is an infrastructure adapter over a private bounded `asyncio.Queue`; publication uses `put_nowait` and translates capacity exhaustion into `EventQueueFullError`.
+
+`create_app` constructs one shared queue for `IngestionService` and `EventWorker`. FastAPI lifespan starts one worker task, attempts bounded graceful draining with `queue.join()` during shutdown, then cancels and awaits the worker. Ordinary processor failures are isolated inside the worker and logged using only approved event identifiers. The queue is process-local and non-durable; there are no retries, dead-letter handling, persistence, or multiple production workers.

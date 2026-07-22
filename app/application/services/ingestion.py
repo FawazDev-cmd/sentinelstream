@@ -1,4 +1,4 @@
-"""Normalize validated external log data into trusted domain events."""
+"""Normalize validated external log data into trusted queued events."""
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from app.application.contracts.clock import Clock
+from app.application.contracts.event_queue import EventQueue
 from app.domain.logs import LogEvent, LogLevel
 from app.domain.logs.models import FrozenJsonValue
 
@@ -49,21 +50,21 @@ class IngestionResult:
 
 
 class IngestionService:
-    def __init__(self, clock: Clock, id_generator: Callable[[], UUID] = uuid4) -> None:
+    def __init__(
+        self, clock: Clock, queue: EventQueue, id_generator: Callable[[], UUID] = uuid4
+    ) -> None:
         self._clock = clock
+        self._queue = queue
         self._id_generator = id_generator
 
-    def ingest(self, data: IngestionInput) -> IngestionResult:
-        level = self._normalize_level(data.level)
-        timestamp = self._aware_utc(data.timestamp, field_name="timestamp")
-        received_at = self._aware_utc(self._clock.now(), field_name="clock output")
+    async def ingest(self, data: IngestionInput) -> IngestionResult:
         event = LogEvent(
             event_id=data.event_id or self._id_generator(),
-            timestamp=timestamp,
-            received_at=received_at,
+            timestamp=self._aware_utc(data.timestamp, field_name="timestamp"),
+            received_at=self._aware_utc(self._clock.now(), field_name="clock output"),
             service=data.service,
             environment=data.environment,
-            level=level,
+            level=self._normalize_level(data.level),
             message=data.message,
             exception_type=data.exception_type,
             exception_message=data.exception_message,
@@ -74,6 +75,7 @@ class IngestionService:
             host=data.host,
             metadata=data.metadata,
         )
+        await self._queue.publish(event)
         return IngestionResult(event)
 
     @staticmethod
