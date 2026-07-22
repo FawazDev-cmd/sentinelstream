@@ -1,7 +1,7 @@
-"""Schemas for the external log-ingestion boundary."""
+"""Schemas for log ingestion and persisted-log retrieval."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import (
@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from app.application.services.ingestion import IngestionInput
+from app.domain.logs import LogEvent, LogLevel
 from app.domain.logs.models import (
     ENVIRONMENT_MAX_LENGTH,
     EXCEPTION_MESSAGE_MAX_LENGTH,
@@ -67,3 +68,47 @@ class LogIngestionRequest(BaseModel):
 class LogIngestionResponse(BaseModel):
     status: Literal["accepted"] = "accepted"
     event_id: UUID
+
+
+class LogEventResponse(BaseModel):
+    event_id: UUID
+    timestamp: datetime
+    received_at: datetime
+    service: str
+    environment: str
+    level: LogLevel
+    message: str
+    exception_type: str | None
+    exception_message: str | None
+    latency_ms: float | None
+    status_code: int | None
+    trace_id: str | None
+    request_id: str | None
+    host: str | None
+    metadata: dict[str, JsonValue]
+
+    @classmethod
+    def from_event(cls, event: LogEvent) -> "LogEventResponse":
+        metadata = cast(dict[str, JsonValue], event.to_dict()["metadata"])
+        return cls(
+            event_id=event.event_id,
+            timestamp=event.timestamp,
+            received_at=event.received_at,
+            service=event.service,
+            environment=event.environment,
+            level=event.level,
+            message=event.message,
+            exception_type=event.exception_type,
+            exception_message=event.exception_message,
+            latency_ms=event.latency_ms,
+            status_code=event.status_code,
+            trace_id=event.trace_id,
+            request_id=event.request_id,
+            host=event.host,
+            metadata=metadata,
+        )
+
+
+class LogEventPageResponse(BaseModel):
+    items: list[LogEventResponse]
+    next_cursor: str | None

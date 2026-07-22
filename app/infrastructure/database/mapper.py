@@ -1,9 +1,10 @@
-"""Focused domain-to-ORM conversion."""
+"""Focused conversion between domain events and ORM records."""
 
+import copy
 from collections.abc import Mapping
 from typing import cast
 
-from app.domain.logs import LogEvent
+from app.domain.logs import LogEvent, LogLevel
 from app.domain.logs.models import FrozenJsonValue, JsonValue
 from app.infrastructure.database.models import LogEventRecord
 
@@ -34,4 +35,25 @@ def map_log_event(event: LogEvent) -> LogEventRecord:
         request_id=event.request_id,
         host=event.host,
         event_metadata=metadata,
+    )
+
+
+def map_log_event_record(record: LogEventRecord) -> LogEvent:
+    metadata = cast(dict[str, FrozenJsonValue], copy.deepcopy(record.event_metadata))
+    return LogEvent(
+        event_id=record.event_id,
+        timestamp=record.timestamp,
+        received_at=record.received_at,
+        service=record.service,
+        environment=record.environment,
+        level=LogLevel(record.level),
+        message=record.message,
+        exception_type=record.exception_type,
+        exception_message=record.exception_message,
+        latency_ms=record.latency_ms,
+        status_code=record.status_code,
+        trace_id=record.trace_id,
+        request_id=record.request_id,
+        host=record.host,
+        metadata=metadata,
     )

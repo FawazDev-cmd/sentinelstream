@@ -49,6 +49,16 @@ class IngestionResult:
         return self.event.event_id
 
 
+def normalize_log_level(value: str) -> LogLevel:
+    try:
+        return LEVEL_ALIASES[value.casefold()]
+    except (AttributeError, KeyError) as error:
+        accepted = ", ".join(sorted(LEVEL_ALIASES))
+        raise ValueError(
+            f"unknown log level {value!r}; expected one of: {accepted}"
+        ) from error
+
+
 class IngestionService:
     def __init__(
         self, clock: Clock, queue: EventQueue, id_generator: Callable[[], UUID] = uuid4
@@ -64,7 +74,7 @@ class IngestionService:
             received_at=self._aware_utc(self._clock.now(), field_name="clock output"),
             service=data.service,
             environment=data.environment,
-            level=self._normalize_level(data.level),
+            level=normalize_log_level(data.level),
             message=data.message,
             exception_type=data.exception_type,
             exception_message=data.exception_message,
@@ -77,16 +87,6 @@ class IngestionService:
         )
         await self._queue.publish(event)
         return IngestionResult(event)
-
-    @staticmethod
-    def _normalize_level(value: str) -> LogLevel:
-        try:
-            return LEVEL_ALIASES[value.casefold()]
-        except (AttributeError, KeyError) as error:
-            accepted = ", ".join(sorted(LEVEL_ALIASES))
-            raise ValueError(
-                f"unknown log level {value!r}; expected one of: {accepted}"
-            ) from error
 
     @staticmethod
     def _aware_utc(value: datetime, *, field_name: str) -> datetime:

@@ -56,3 +56,11 @@ Repository operations open one session per event, commit once, roll back ordinar
 Day 6 makes version-controlled Alembic revisions authoritative for PostgreSQL schema evolution. The Alembic environment imports the single infrastructure `Base` and explicit ORM model, resolves the database URL through centralized validated settings, and supports offline SQL plus online asyncpg execution with an independently owned migration engine.
 
 The application lifecycle never invokes Alembic or `Base.metadata.create_all`. Missing migrations therefore surface later as asynchronous persistence failures; they are not automatically repaired. Revision `20260722_0001` owns the `log_events` table and six indexes. Its downgrade deliberately removes only those objects and destroys rows in that table.
+
+## Persisted log read boundary
+
+Day 7 adds immutable application query, cursor, and page values plus the narrow `LogEventReader` protocol. Cursor ordering is fixed to `(timestamp DESC, event_id DESC)` and its predicate uses older timestamps or lower UUIDs at the same timestamp. Cursors are strict URL-safe Base64 JSON tokens containing only UTC timestamp and UUID; they are opaque API values but are not encrypted or signed.
+
+`SqlAlchemyLogEventReader` shares the production session factory, creates a fresh session per call, applies exact and inclusive filters, fetches `limit + 1`, and never commits. Infrastructure explicitly maps ORM records back into domain events and allows invalid persisted data to fail visibly. Presentation validates query parameters and maps malformed cursors to HTTP 422.
+
+No migration was added because revision `20260722_0001` already contains the required timestamp, UUID-primary-key, and composite service/timestamp indexes. No total count, offset pagination, arbitrary ordering, full-text search, or metadata search exists.

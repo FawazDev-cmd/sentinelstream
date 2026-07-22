@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.application.contracts.clock import Clock, SystemClock
 from app.application.contracts.event_processor import EventProcessor
 from app.application.contracts.event_queue import EventQueue
+from app.application.contracts.reader import LogEventReader
 from app.application.services.ingestion import IngestionService
 from app.application.services.persistence import PersistenceEventProcessor
 from app.application.services.worker import EventWorker
+from app.infrastructure.database.reader import SqlAlchemyLogEventReader
 from app.infrastructure.database.repository import SqlAlchemyLogEventRepository
 from app.infrastructure.database.runtime import (
     create_async_engine_from_settings,
@@ -36,6 +38,7 @@ def create_app(
     clock: Clock | None = None,
     event_id_factory: Callable[[], UUID] | None = None,
     database_engine: AsyncEngine | None = None,
+    log_event_reader: LogEventReader | None = None,
 ) -> FastAPI:
     """Build one explicitly owned application runtime."""
     active_settings = settings or get_settings()
@@ -48,8 +51,11 @@ def create_app(
             active_settings
         )
         owns_engine = database_engine is None
-        repository = SqlAlchemyLogEventRepository(create_session_factory(active_engine))
+        session_factory = create_session_factory(active_engine)
+        repository = SqlAlchemyLogEventRepository(session_factory)
         processor: EventProcessor = PersistenceEventProcessor(repository)
+        if log_event_reader is None:
+            log_event_reader = SqlAlchemyLogEventReader(session_factory)
     else:
         processor = event_processor
     ingestion_service = IngestionService(
@@ -98,6 +104,7 @@ def create_app(
     )
     application.state.settings = active_settings
     application.state.ingestion_service = ingestion_service
+    application.state.log_event_reader = log_event_reader
     application.include_router(health_router)
     application.include_router(logs_router)
     return application

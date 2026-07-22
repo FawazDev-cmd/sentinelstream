@@ -28,6 +28,7 @@ def test_default_runtime_creates_persistence_processor_starts_worker_and_dispose
     async def scenario() -> None:
         engine = FakeEngine()
         processors: list[object] = []
+        readers: list[object] = []
         monkeypatch.setattr(
             main,
             "create_async_engine_from_settings",
@@ -42,11 +43,19 @@ def test_default_runtime_creates_persistence_processor_starts_worker_and_dispose
             return NoOpProcessor()
 
         monkeypatch.setattr(main, "PersistenceEventProcessor", processor)
+
+        def reader_factory(session_factory: object) -> object:
+            readers.append(session_factory)
+            return object()
+
+        monkeypatch.setattr(main, "SqlAlchemyLogEventReader", reader_factory)
         app = main.create_app(Settings(environment="test"))
         async with app.router.lifespan_context(app):
             task = app.state.worker_task
             assert not task.done()
         assert len(processors) == 1
+        assert len(readers) == 1
+        assert app.state.log_event_reader is not None
         assert engine.disposals == 1 and task.done()
 
     asyncio.run(scenario())

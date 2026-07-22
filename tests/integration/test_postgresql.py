@@ -124,3 +124,97 @@ def test_upgrade_repository_downgrade_safety_and_reupgrade(
         asyncio.run(cleanup())
     finally:
         asyncio.run(engine.dispose())
+
+
+def test_reader_filters_order_and_cursor_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.application.queries.logs import LogEventQuery
+    from app.infrastructure.database.reader import SqlAlchemyLogEventReader
+
+    url = database_url()
+    monkeypatch.setenv("SENTINELSTREAM_DATABASE_URL", url)
+    command.upgrade(alembic_config(), "head")
+    engine = create_async_engine(url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    ids = [
+        UUID(f"00000000-0000-4000-8000-{number:012d}") for number in range(7001, 7006)
+    ]
+    moments = [
+        datetime(2026, 7, 22, 12, tzinfo=UTC),
+        datetime(2026, 7, 22, 11, tzinfo=UTC),
+        datetime(2026, 7, 22, 11, tzinfo=UTC),
+        datetime(2026, 7, 22, 10, tzinfo=UTC),
+        datetime(2026, 7, 22, 9, tzinfo=UTC),
+    ]
+    events = [
+        LogEvent(
+            event_id=ids[index],
+            timestamp=moments[index],
+            received_at=moments[index],
+            service="payments-api" if index in (0, 2, 4) else "orders-api",
+            environment="production" if index != 3 else "staging",
+            level=LogLevel.ERROR if index in (0, 2, 3) else LogLevel.INFO,
+            message=f"integration-{index}",
+        )
+        for index in range(5)
+    ]
+
+    async def scenario() -> None:
+        repository = SqlAlchemyLogEventRepository(factory)
+        reader = SqlAlchemyLogEventReader(factory)
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id.in_(ids))
+            )
+            await session.commit()
+        for event in events:
+            await repository.add(event)
+        first = await reader.list(LogEventQuery(limit=2))
+        assert [item.event_id for item in first.items] == [
+            ids[0],
+            ids[2],
+        ] and first.next_cursor is not None
+        second = await reader.list(LogEventQuery(limit=2, cursor=first.next_cursor))
+        assert [item.event_id for item in second.items] == [
+            ids[1],
+            ids[3],
+        ] and second.next_cursor is not None
+        final = await reader.list(LogEventQuery(limit=2, cursor=second.next_cursor))
+        assert [item.event_id for item in final.items] == [
+            ids[4]
+        ] and final.next_cursor is None
+        assert not (
+            {item.event_id for item in first.items}
+            & {item.event_id for item in second.items}
+        )
+        service = await reader.list(LogEventQuery(service="payments-api"))
+        assert [item.event_id for item in service.items] == [ids[0], ids[2], ids[4]]
+        environment = await reader.list(LogEventQuery(environment="staging"))
+        assert [item.event_id for item in environment.items] == [ids[3]]
+        level = await reader.list(LogEventQuery(level=LogLevel.ERROR))
+        assert [item.event_id for item in level.items] == [ids[0], ids[2], ids[3]]
+        inclusive = await reader.list(
+            LogEventQuery(start_time=moments[1], end_time=moments[1])
+        )
+        assert [item.event_id for item in inclusive.items] == [ids[2], ids[1]]
+        combined = await reader.list(
+            LogEventQuery(
+                service="payments-api",
+                environment="production",
+                level=LogLevel.ERROR,
+                start_time=moments[2],
+                end_time=moments[0],
+            )
+        )
+        assert [item.event_id for item in combined.items] == [ids[0], ids[2]]
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id.in_(ids))
+            )
+            await session.commit()
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        asyncio.run(engine.dispose())

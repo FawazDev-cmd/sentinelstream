@@ -1,22 +1,10 @@
 ﻿# SentinelStream
 
-SentinelStream validates single log events, places trusted events into a bounded non-durable in-process queue, and asynchronously persists them to PostgreSQL through SQLAlchemy and asyncpg.
+SentinelStream validates single log events, queues them in a bounded non-durable in-process queue, asynchronously persists them to PostgreSQL, and provides cursor-paginated retrieval.
 
-## Persistence and delivery semantics
+## Setup and migrations
 
-`POST /api/v1/logs` returns HTTP 202 after queue placement only. It does not confirm persistence. The queue is process-local and non-durable, and process crashes may lose queued or processing events.
-
-Persistence failures are safely isolated by the worker, but there is no retry or dead-letter recovery. If the database schema has not been migrated, queued events can fail asynchronously and be lost after the failure is logged.
-
-## PostgreSQL and migrations
-
-Create the PostgreSQL database and user, then configure:
-
-```text
-SENTINELSTREAM_DATABASE_URL=postgresql+asyncpg://<user>:<password>@localhost:5432/<database>
-```
-
-Install dependencies and apply all migrations before starting the API:
+Configure `SENTINELSTREAM_DATABASE_URL`, then run:
 
 ```bash
 uv sync
@@ -24,25 +12,41 @@ uv run alembic upgrade head
 uv run uvicorn app.presentation.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-Alembic is authoritative for schema management. Application startup does not create tables, inspect migration history, or apply migrations automatically.
+Alembic migrations are explicit operator actions. Application startup does not create or migrate tables. HTTP 202 from `POST /api/v1/logs` means queue placement only, not persistence.
 
-Useful commands:
+## Query persisted logs
+
+Unfiltered:
 
 ```bash
-uv run alembic current
-uv run alembic history
-uv run alembic heads
-uv run alembic revision --autogenerate -m "describe schema change"
-uv run alembic downgrade -1
+curl "http://127.0.0.1:8000/api/v1/logs"
 ```
 
-Review generated migrations before applying them. Downgrades can delete schema objects and data; the initial downgrade removes `log_events` and all rows in it.
+Exact service and normalized level filters:
 
-`GET /health` remains a shallow process-health check and performs no database query.
+```bash
+curl "http://127.0.0.1:8000/api/v1/logs?service=payments-api&level=error&limit=25"
+```
 
-## Tests and quality checks
+Inclusive time range:
 
-The normal suite requires no PostgreSQL server. Migration integration tests require `SENTINELSTREAM_TEST_DATABASE_URL` and refuse destructive downgrade testing unless the database name contains `test`.
+```bash
+curl "http://127.0.0.1:8000/api/v1/logs?start_time=2026-07-22T00:00:00Z&end_time=2026-07-22T23:59:59Z"
+```
+
+Next page:
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/logs?limit=25&cursor=<next_cursor>"
+```
+
+URL-encode cursor values when necessary. Results are always newest first by event timestamp and UUID. The default limit is 50 and maximum is 100. Cursors are encoded opaque tokens, not encrypted or signed. Responses intentionally contain no total count.
+
+Supported filters are exact `service`, `environment`, and `level`, with inclusive event-time bounds. There is no partial matching, full-text search, metadata search, aggregation, arbitrary sorting, or offset pagination.
+
+Migrations must be applied before persistence and retrieval. The queue remains process-local and non-durable; persistence failures have no retry or dead-letter recovery.
+
+## Quality checks
 
 ```bash
 uv run pytest
