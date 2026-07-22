@@ -10,7 +10,8 @@ venv/
 
 # Environment variables
 .env
-.env.local
+.env.*
+!.env.example
 
 # Testing and type checking
 .pytest_cache/

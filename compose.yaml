@@ -1,0 +1,49 @@
+name: sentinelstream
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinelstream_local}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinelstream}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinelstream_local_password}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - sentinelstream_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      SENTINELSTREAM_ENVIRONMENT: ${SENTINELSTREAM_ENVIRONMENT:-local}
+      SENTINELSTREAM_LOG_LEVEL: ${SENTINELSTREAM_LOG_LEVEL:-INFO}
+      SENTINELSTREAM_JSON_LOGGING_ENABLED: ${SENTINELSTREAM_JSON_LOGGING_ENABLED:-true}
+      SENTINELSTREAM_EVENT_QUEUE_MAX_SIZE: ${SENTINELSTREAM_EVENT_QUEUE_MAX_SIZE:-1000}
+      SENTINELSTREAM_WORKER_SHUTDOWN_TIMEOUT_SECONDS: ${SENTINELSTREAM_WORKER_SHUTDOWN_TIMEOUT_SECONDS:-10}
+      SENTINELSTREAM_INCIDENT_GENERATION_LOOKBACK_SECONDS: ${SENTINELSTREAM_INCIDENT_GENERATION_LOOKBACK_SECONDS:-3600}
+      SENTINELSTREAM_DATABASE_URL: ${SENTINELSTREAM_DATABASE_URL:-postgresql+asyncpg://sentinelstream:sentinelstream_local_password@postgres:5432/sentinelstream_local}
+      SENTINELSTREAM_DATABASE_ECHO: ${SENTINELSTREAM_DATABASE_ECHO:-false}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  sentinelstream_postgres_data:

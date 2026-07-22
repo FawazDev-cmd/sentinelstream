@@ -255,3 +255,24 @@ failure record. This adds visibility only: queue completion, continuation after 
 processing failure, cancellation, shutdown, business ordering, and HTTP 202 semantics
 remain unchanged. There is no metrics endpoint, external telemetry dependency, retry,
 dead-letter queue, or tracing backend.
+
+## Container and CI architecture
+
+Day 17 packages the existing runtime in one non-root API image built from Python 3.13
+slim with locked uv dependency synchronization. The container includes only runtime
+application files, Alembic configuration/revisions, the lockfile, and its virtual
+environment. Its exec-form Uvicorn command preserves signal delivery to FastAPI lifespan
+shutdown. FastAPI and the managed ingestion worker remain in the same process and
+container; no second worker service exists.
+
+Compose defines an API service and a separate PostgreSQL service with named persistent
+storage. PostgreSQL publishes only on the local loopback interface and must pass
+pg_isready before the API may start. The API health check calls the existing /health
+endpoint. Schema evolution remains an explicit Alembic command after database health;
+application startup never creates or migrates tables.
+
+GitHub Actions has independent quality, PostgreSQL integration, and Docker build jobs.
+Workflow permissions are read-only. The integration database name contains test, and CI
+applies migrations before running tests. Migration validation programmatically requires
+exactly one Alembic head. Images are built only for verification and are never pushed.
+Runtime structured JSON logs continue to stdout.

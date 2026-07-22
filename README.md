@@ -217,3 +217,69 @@ Both bounds are inclusive. Already assigned findings remain excluded, and the gr
 does not extend or merge existing incidents. Generation has no scheduler or retry.
 Because HTTP 202 means queue acceptance, a response may already have been returned before
 the worker encounters an anomaly-persistence or incident-generation failure.
+
+## Local Python development
+
+The non-container workflow remains supported:
+
+~~~bash
+uv sync --frozen
+uv run alembic upgrade head
+uv run uvicorn app.presentation.api.main:app --host 127.0.0.1 --port 8000
+~~~
+
+For this host workflow, set SENTINELSTREAM_DATABASE_URL to a PostgreSQL URL using
+localhost rather than the Compose service hostname.
+
+## Docker Compose quick start
+
+Copy the safe local example, build the production image, start PostgreSQL, apply the
+explicit Alembic migration, and then start the API:
+
+~~~bash
+cp .env.example .env
+docker compose build
+docker compose up -d postgres
+docker compose run --rm api uv run alembic upgrade head
+docker compose up -d api
+docker compose ps
+curl http://localhost:8000/health
+~~~
+
+The API never runs migrations or metadata create_all during startup. Migration failures
+remain visible and prevent the one-shot migration command from succeeding. The API waits
+for PostgreSQL health before starting. FastAPI and the managed ingestion worker share
+one non-root API container; there is no separate worker container. Structured JSON logs
+are written to stdout.
+
+Inspect API logs with:
+
+~~~bash
+docker compose logs --no-color api
+~~~
+
+Stop containers while preserving the database volume:
+
+~~~bash
+docker compose down
+~~~
+
+To destroy the local PostgreSQL volume and all its data, use the following destructive
+reset deliberately:
+
+~~~bash
+docker compose down -v
+~~~
+
+## Continuous integration gates
+
+GitHub Actions runs three least-privilege jobs:
+
+- quality: locked dependency sync, Ruff lint and format, strict mypy, non-integration
+  tests, Alembic history/head inspection, and an automated exactly-one-head assertion;
+- PostgreSQL integration: a health-checked sentinelstream_test database, Alembic upgrade,
+  and the integration suite with its safety guard enabled;
+- Docker build: a BuildKit production-image build without registry credentials or push.
+
+The container image installs locked runtime dependencies with uv, excludes tests and
+environment files, runs as an unprivileged user, and starts Uvicorn without reload.
