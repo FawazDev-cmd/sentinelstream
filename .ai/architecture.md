@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 ## Direction
 
@@ -32,7 +32,7 @@ dependencies.
 
 Day 3 keeps external schemas in presentation and converts them to an application `IngestionInput`. The application `IngestionService` owns explicit provider-level aliases, UUID selection, clock use, UTC normalization, and construction of the domain `LogEvent`. FastAPI resolves the service from application state populated by `create_app`, allowing deterministic injection without global mutable business state.
 
-The application-level `Clock` protocol separates server receipt time from wall-clock access. `SystemClock` returns UTC; the service still validates awareness and normalizes any aware clock value to UTC. The Day 3 terminal behavior returns the constructed event only—there is no queue or persistence.
+The application-level `Clock` protocol separates server receipt time from wall-clock access. `SystemClock` returns UTC; the service still validates awareness and normalizes any aware clock value to UTC. The Day 3 terminal behavior returns the constructed event onlyâ€”there is no queue or persistence.
 
 ## In-process queue and worker lifecycle
 
@@ -46,6 +46,13 @@ Day 5 adds a one-method `LogEventRepository` application protocol and `Persisten
 
 The ORM uses `event_metadata` as its Python attribute because `metadata` is reserved by SQLAlchemy declarative models; the physical PostgreSQL column remains `metadata` and uses JSONB. Frozen domain mappings and tuples are explicitly converted to mutable dictionaries and lists.
 
-When no processor is injected, `create_app` constructs one engine, session factory, repository, and persistence processor. Internally created engines are application-owned: startup runs temporary `create_all`, startup failures remain visible, and shutdown disposes the engine even after a drain timeout. An externally injected engine is caller-owned and is not initialized or disposed by the application. Injecting a processor bypasses database runtime construction.
+When no processor is injected, `create_app` constructs one engine, session factory, repository, and persistence processor. Internally created engines are application-owned and disposed during shutdown even after a drain timeout. Day 6 removed startup `create_all`; operators must apply Alembic migrations before starting the application. An externally injected engine is caller-owned and is not initialized or disposed by the application. Injecting a processor bypasses database runtime construction.
 
 Repository operations open one session per event, commit once, roll back ordinary commit failures, and propagate errors. Duplicate UUIDs remain primary-key failures; there are no upserts, retries, dead-letter recovery, or query methods.
+
+
+## Alembic migration authority
+
+Day 6 makes version-controlled Alembic revisions authoritative for PostgreSQL schema evolution. The Alembic environment imports the single infrastructure `Base` and explicit ORM model, resolves the database URL through centralized validated settings, and supports offline SQL plus online asyncpg execution with an independently owned migration engine.
+
+The application lifecycle never invokes Alembic or `Base.metadata.create_all`. Missing migrations therefore surface later as asynchronous persistence failures; they are not automatically repaired. Revision `20260722_0001` owns the `log_events` table and six indexes. Its downgrade deliberately removes only those objects and destroys rows in that table.

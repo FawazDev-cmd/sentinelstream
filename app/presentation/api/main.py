@@ -20,7 +20,6 @@ from app.infrastructure.database.runtime import (
     create_async_engine_from_settings,
     create_session_factory,
 )
-from app.infrastructure.database.schema import create_database_schema
 from app.infrastructure.queue.memory import InMemoryEventQueue
 from app.monitoring.logging import configure_logging
 from app.presentation.api.routes.health import router as health_router
@@ -64,8 +63,6 @@ def create_app(
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         worker_task: asyncio.Task[None] | None = None
         try:
-            if active_engine is not None and owns_engine:
-                await create_database_schema(active_engine)
             worker_task = asyncio.create_task(
                 worker.run(), name="sentinelstream-event-worker"
             )

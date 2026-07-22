@@ -1,22 +1,29 @@
-"""PostgreSQL integration tests enabled by SENTINELSTREAM_TEST_DATABASE_URL."""
+"""Guarded PostgreSQL migration integration test."""
 
 import asyncio
 import os
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 import pytest
-from sqlalchemy import delete, select
+from alembic.config import Config
+from sqlalchemy import Table, delete, inspect, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from alembic import command
 from app.domain.logs import LogEvent, LogLevel
 from app.infrastructure.database.models import LogEventRecord
 from app.infrastructure.database.repository import SqlAlchemyLogEventRepository
-from app.infrastructure.database.schema import create_database_schema
 
 pytestmark = pytest.mark.integration
+ROOT = Path(__file__).parents[2]
+REVISION = "20260722_0001"
+EVENT_ID = UUID("00000000-0000-4000-8000-000000006001")
+GUARD_TABLE = "sentinelstream_migration_guard"
 
 
 def database_url() -> str:
@@ -25,90 +32,95 @@ def database_url() -> str:
         pytest.skip("SENTINELSTREAM_TEST_DATABASE_URL is not configured")
     database = make_url(value).database or ""
     if "test" not in database.casefold():
-        pytest.fail("integration database name must contain 'test'")
+        pytest.fail("migration database name must contain 'test'")
     return value
 
 
-def test_postgresql_schema_insert_duplicate_and_non_destructive_create() -> None:
-    async def scenario() -> None:
-        engine = create_async_engine(database_url(), pool_pre_ping=True)
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        repository = SqlAlchemyLogEventRepository(factory)
-        first_id = UUID("00000000-0000-4000-8000-000000005001")
-        second_id = UUID("00000000-0000-4000-8000-000000005002")
-        try:
-            await create_database_schema(engine)
-            async with factory() as session:
-                await session.execute(
-                    delete(LogEventRecord).where(
-                        LogEventRecord.event_id.in_([first_id, second_id])
-                    )
-                )
-                await session.commit()
-            complete = LogEvent(
-                event_id=first_id,
-                timestamp=datetime(2026, 7, 22, 10, tzinfo=UTC),
-                received_at=datetime(2026, 7, 22, 10, 0, 1, tzinfo=UTC),
-                service="integration-api",
-                environment="test",
-                level=LogLevel.ERROR,
-                message="failure",
-                latency_ms=12.5,
-                status_code=500,
-                metadata={"source": "integration", "items": [1, True]},  # type: ignore[dict-item]
-            )
-            minimal = LogEvent(
-                event_id=second_id,
-                timestamp=datetime(2026, 7, 22, 11, tzinfo=UTC),
-                received_at=datetime(2026, 7, 22, 11, 0, 1, tzinfo=UTC),
-                service="integration-api",
-                environment="test",
-                level=LogLevel.INFO,
-                message="ok",
-            )
-            await repository.add(complete)
-            await create_database_schema(engine)
-            await repository.add(minimal)
-            async with factory() as session:
-                rows = (
-                    await session.scalars(
-                        select(LogEventRecord).where(
-                            LogEventRecord.event_id.in_([first_id, second_id])
-                        )
-                    )
-                ).all()
-            by_id = {row.event_id: row for row in rows}
-            assert set(by_id) == {first_id, second_id}
-            stored = by_id[first_id]
-            assert stored.timestamp.astimezone(UTC) == complete.timestamp
-            assert stored.received_at.astimezone(UTC) == complete.received_at
-            assert stored.level == "ERROR" and stored.event_metadata == {
-                "source": "integration",
-                "items": [1, True],
-            }
-            assert by_id[second_id].exception_type is None
-            with pytest.raises(IntegrityError):
-                await repository.add(complete)
-            third = LogEvent(
-                event_id=UUID("00000000-0000-4000-8000-000000005003"),
-                timestamp=datetime(2026, 7, 22, 12, tzinfo=UTC),
-                received_at=datetime(2026, 7, 22, 12, tzinfo=UTC),
-                service="integration-api",
-                environment="test",
-                level=LogLevel.INFO,
-                message="after duplicate",
-            )
-            await repository.add(third)
-            async with factory() as session:
-                await session.execute(
-                    delete(LogEventRecord).where(
-                        LogEventRecord.event_id.in_(
-                            [first_id, second_id, third.event_id]
-                        )
-                    )
-                )
-                await session.commit()
-        finally:
-            await engine.dispose()
+def alembic_config() -> Config:
+    return Config(str(ROOT / "alembic.ini"))
 
-    asyncio.run(scenario())
+
+def test_upgrade_repository_downgrade_safety_and_reupgrade(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url = database_url()
+    monkeypatch.setenv("SENTINELSTREAM_DATABASE_URL", url)
+    engine = create_async_engine(url, pool_pre_ping=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def prepare_guard() -> None:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    f"CREATE TABLE IF NOT EXISTS {GUARD_TABLE} (id integer PRIMARY KEY)"
+                )
+            )
+
+    async def inspect_schema() -> tuple[set[str], set[str], str | None, bool]:
+        async with engine.connect() as connection:
+
+            def inspect_sync(
+                sync_connection: object,
+            ) -> tuple[set[str], set[str], bool]:
+                inspector = cast(Inspector, inspect(sync_connection))
+                columns = {item["name"] for item in inspector.get_columns("log_events")}
+                indexes = {
+                    cast(str, item["name"])
+                    for item in inspector.get_indexes("log_events")
+                }
+                return columns, indexes, inspector.has_table(GUARD_TABLE)
+
+            columns, indexes, guard = await connection.run_sync(inspect_sync)
+            version = await connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+            return columns, indexes, version, guard
+
+    async def cleanup() -> None:
+        async with factory() as session:
+            await session.execute(
+                delete(LogEventRecord).where(LogEventRecord.event_id == EVENT_ID)
+            )
+            await session.commit()
+        async with engine.begin() as connection:
+            await connection.execute(text(f"DROP TABLE IF EXISTS {GUARD_TABLE}"))
+
+    try:
+        asyncio.run(prepare_guard())
+        command.upgrade(alembic_config(), "head")
+        columns, indexes, version, guard = asyncio.run(inspect_schema())
+        assert version == REVISION and guard
+        assert set(LogEventRecord.__table__.c.keys()) == columns
+        assert {
+            index.name for index in cast(Table, LogEventRecord.__table__).indexes
+        } == indexes
+        event = LogEvent(
+            event_id=EVENT_ID,
+            timestamp=datetime(2026, 7, 22, 10, tzinfo=UTC),
+            received_at=datetime(2026, 7, 22, 10, 0, 1, tzinfo=UTC),
+            service="migration-api",
+            environment="test",
+            level=LogLevel.ERROR,
+            message="failure",
+            metadata={"source": "migration", "items": [1, True]},  # type: ignore[dict-item]
+        )
+        asyncio.run(SqlAlchemyLogEventRepository(factory).add(event))
+        command.upgrade(alembic_config(), "head")
+        command.downgrade(alembic_config(), "base")
+
+        async def verify_downgrade() -> tuple[bool, bool]:
+            async with engine.connect() as connection:
+                return await connection.run_sync(
+                    lambda sync: (
+                        inspect(sync).has_table("log_events"),
+                        inspect(sync).has_table(GUARD_TABLE),
+                    )
+                )
+
+        log_exists, guard_exists = asyncio.run(verify_downgrade())
+        assert not log_exists and guard_exists
+        command.upgrade(alembic_config(), "head")
+        assert asyncio.run(inspect_schema())[2] == REVISION
+        asyncio.run(cleanup())
+    finally:
+        asyncio.run(engine.dispose())

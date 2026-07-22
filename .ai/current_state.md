@@ -1,28 +1,71 @@
 ﻿# SentinelStream — Current State
 
-## Current Status
+## Project
 
-Days 1–5 are complete. SentinelStream accepts validated single log events, places trusted `LogEvent` objects into a bounded non-durable in-process queue, and asynchronously persists them to PostgreSQL through one managed worker.
+SentinelStream is a portfolio-first real-time log intelligence platform that ingests structured server logs, persists them asynchronously, detects deterministic anomalies, groups related failures into incidents, and produces evidence-based explanations.
 
-## Day 5 — PostgreSQL Persistence Foundation
+## Completed Milestones
 
-The implemented flow is:
+Completed, committed, and pushed:
+
+- Day 1 — Project Foundation
+- Day 2 — Log Domain Contracts
+- Day 3 — Ingestion Schemas and Normalization
+- Day 4 — Asynchronous Queue and Worker Lifecycle
+- Day 5 — PostgreSQL Persistence Foundation
+
+Day 6 — Alembic Migration Foundation is complete and verified.
+
+## Current Capabilities
+
+SentinelStream currently provides:
+
+- FastAPI application factory
+- centralized validated settings
+- structured JSON logging
+- `GET /health`
+- immutable `LogEvent` domain model
+- normalized `LogLevel`
+- `POST /api/v1/logs`
+- injectable clock and UUID generation
+- bounded in-process async queue
+- HTTP 503 backpressure handling
+- managed background worker
+- processor failure isolation
+- bounded graceful shutdown
+- SQLAlchemy 2.x asynchronous persistence
+- asyncpg PostgreSQL driver
+- typed repository boundary
+- explicit domain-to-ORM mapping
+- PostgreSQL UUID and JSONB storage
+- explicit database-engine ownership
+- Alembic migration management
+- async online migration execution
+- offline SQL migration generation
+- version-controlled initial schema
+- 127 passing non-integration tests
+- guarded PostgreSQL migration integration testing
+- Ruff and strict mypy verification
+
+## Current Milestone
+
+Phase 2 — Database Lifecycle and Persistence Hardening
+
+### Completed Task
+
+Day 6 — Alembic Migration Foundation
+
+## Day 6 Implementation
+
+### Operational database lifecycle
+
+The database lifecycle is now:
 
 ```text
-HTTP request
-→ validation and normalization
-→ trusted LogEvent
-→ bounded in-process queue
-→ background worker
-→ PersistenceEventProcessor
-→ LogEventRepository
-→ PostgreSQL through SQLAlchemy async APIs and asyncpg
-```
-
-HTTP 202 still means queue placement only; it does not confirm a database commit. Persistence failures are isolated and safely logged by the worker. There is currently no retry or dead-letter recovery, so an event whose asynchronous persistence fails is lost after logging.
-
-The PostgreSQL `log_events` model uses native UUID and JSONB types, timezone-aware timestamps, domain-aligned string lengths, and practical retrieval indexes. Startup uses non-destructive `Base.metadata.create_all` only as a temporary local-development strategy. Alembic and production migration management are not implemented.
-
-Internally created engines are initialized and disposed by the application. Caller-injected engines are neither schema-initialized nor disposed. Injecting an event processor bypasses database creation entirely.
-
-The queue remains process-local and non-durable. Process crashes may lose queued or processing events. There is no anomaly detection, incident generation, querying API, retry, dead-letter queue, migration system, or Day 6 functionality.
+uv run alembic upgrade head
+        ↓
+PostgreSQL schema prepared
+        ↓
+SentinelStream application starts
+        ↓
+Background worker persists events
