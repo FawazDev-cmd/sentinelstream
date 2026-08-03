@@ -1,285 +1,293 @@
 # SentinelStream
 
-SentinelStream validates individual log events, places them into a bounded non-durable
-queue, detects deterministic single-event anomalies in the background worker, and
-atomically persists each event with zero or more findings in PostgreSQL. Persisted logs
-are available through cursor-paginated retrieval.
+[![CI](https://github.com/FawazDev-cmd/sentinelstream/actions/workflows/ci.yml/badge.svg)](https://github.com/FawazDev-cmd/sentinelstream/actions/workflows/ci.yml)
+![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 
-## Setup and migrations
+**SentinelStream turns structured application logs into deterministic anomaly evidence and grouped incidents through an asynchronous, observable processing pipeline.**
 
-Configure `SENTINELSTREAM_DATABASE_URL`, then run:
+A FastAPI endpoint validates each log and accepts it into a bounded in-process queue. A
+managed worker applies deterministic anomaly rules, atomically stores the event and findings,
+and generates stable incidents in PostgreSQL. Cursor-paginated APIs expose the persisted
+results, while a separate Streamlit application provides a recruiter-friendly demo using
+only those public REST endpoints.
 
-```bash
-uv sync
-uv run alembic upgrade head
-uv run uvicorn app.presentation.api.main:app --host 127.0.0.1 --port 8000
+## Why SentinelStream
+
+Production logs are difficult to inspect manually, and isolated failures rarely provide
+enough context on their own. SentinelStream demonstrates how strict event contracts,
+explainable rule evidence, deterministic temporal grouping, and safe read interfaces can
+turn related operational signals into incidents without hiding decisions behind an LLM.
+
+## Key features
+
+### Log processing
+
+- Structured JSON ingestion with strict Pydantic validation and normalization
+- Bounded non-durable `asyncio` queue with explicit backpressure behavior
+- Managed worker startup, draining, cancellation, and shutdown
+- Asynchronous SQLAlchemy 2.x and asyncpg persistence to PostgreSQL
+- Explicit Alembic migrations; application startup never mutates the schema
+
+### Intelligence
+
+- Versioned deterministic rules for error levels, server errors, exceptions, and latency
+- Safe anomaly evidence that excludes message contents and metadata
+- Rolling source-event-time lookback for runtime incident generation
+- Five-minute adjacent-gap grouping with an inclusive boundary
+- Deterministic UUIDv5 incident identities and ordered finding memberships
+- Database-enforced uniqueness for finding assignment
+
+### Query and demo
+
+- Opaque keyset cursor pagination for logs, anomalies, and incidents
+- Exact filters and inclusive time boundaries exposed by the existing APIs
+- Incident list and detail reads with ordered findings
+- Six-page Streamlit dashboard: Overview, Logs, Anomalies, Incidents, Demo, and About
+- Demo ingestion form that submits the existing log API contract
+
+### Engineering quality
+
+- Clean Architecture with a framework-independent domain
+- Structured JSON processing and worker lifecycle logs with correlation IDs
+- Monotonic processing-duration measurement and safe failure classification
+- Non-root Docker images and health-aware Docker Compose services
+- GitHub Actions gates for quality, PostgreSQL integration, migrations, and image builds
+- pytest, Ruff, strict mypy, and locked dependency management with uv
+
+## Architecture
+
+```mermaid
+flowchart TD
+    UI[Streamlit dashboard] -->|REST only| API[FastAPI]
+    API -->|validated LogEvent| Q[Bounded in-process queue]
+    Q --> W[Managed worker]
+    W --> AD[Deterministic anomaly detection]
+    AD --> LP[Log persistence in one transaction]
+    LP --> AP[Anomaly persistence in the same transaction]
+    AP --> IG[Incident generation]
+    IG --> IP[Transactional incident persistence]
+    IP --> DB[(PostgreSQL)]
+    API -->|keyset-paginated reads| DB
 ```
 
-Migration `20260722_0002` is required for anomaly persistence. Migrations are explicit
-operator actions; application startup does not create or migrate tables. Downgrading to
-`20260722_0001` removes all anomaly findings while preserving `log_events`.
+Streamlit never connects to PostgreSQL. Presentation and infrastructure depend on
+application contracts, while the domain remains independent of FastAPI, Streamlit,
+SQLAlchemy, queues, and logging frameworks.
 
-HTTP 202 from `POST /api/v1/logs` means queue placement only. It does not confirm
-detection or database commit.
+## Runtime flow
 
-## Query persisted logs
+1. `POST /api/v1/logs` validates and normalizes a timezone-aware structured log.
+2. The ingestion service constructs a trusted `LogEvent` and attempts non-blocking queue
+   insertion.
+3. The API returns HTTP 202 only after queue acceptance. This does **not** mean the event
+   is durably persisted or fully processed.
+4. The managed worker consumes the event asynchronously, and deterministic rules produce
+   zero or more anomaly findings in stable order.
+5. The source log and all findings are committed atomically in one transaction.
+6. When findings exist, incident generation synchronously reads eligible findings within
+   the configured source-event lookback and applies deterministic adjacent-gap grouping.
+7. Qualifying incidents and ordered memberships are persisted, and structured lifecycle
+   telemetry records the outcome. Failures propagate to the worker boundary without
+   retries.
 
-```bash
-curl "http://127.0.0.1:8000/api/v1/logs"
-curl "http://127.0.0.1:8000/api/v1/logs?service=payments-api&level=error&limit=25"
-curl "http://127.0.0.1:8000/api/v1/logs?start_time=2026-07-22T00:00:00Z&end_time=2026-07-22T23:59:59Z"
-curl "http://127.0.0.1:8000/api/v1/logs?limit=25&cursor=<next_cursor>"
-```
+## Screenshots
 
-Results are newest first by event timestamp and UUID. The default limit is 50 and the
-maximum is 100. Cursors are encoded opaque tokens, not encrypted or signed. Supported
-filters are exact `service`, `environment`, and `level`, plus inclusive event-time
-bounds. There is no count, partial matching, full-text/metadata search, aggregation,
-arbitrary sorting, or offset pagination.
+Screenshot capture is intentionally deferred until representative demo data is loaded.
+The following paths are reserved and easy to activate later without leaving broken image
+links in this README:
 
-## Detection and atomic persistence
+| View | Expected path |
+| --- | --- |
+| Overview | `docs/screenshots/overview.png` |
+| Logs | `docs/screenshots/logs.png` |
+| Anomalies | `docs/screenshots/anomalies.png` |
+| Incidents | `docs/screenshots/incidents.png` |
+| Demo ingestion | `docs/screenshots/demo-ingestion.png` |
+| Docker Compose | `docs/screenshots/docker-compose.png` |
+| GitHub Actions | `docs/screenshots/github-actions.png` |
 
-The stable versioned rules detect error/critical levels, server-error status,
-exception-field presence, and high latency. Defaults are 1000 ms high latency, 5000 ms
-critical latency, status 500 server error, and status 550 critical server error.
-Corresponding `SENTINELSTREAM_` settings may override them.
+The directory is preserved by `docs/screenshots/.gitkeep`. No screenshot is claimed until
+the corresponding file exists.
 
-For each queued event, detection runs once and one PostgreSQL transaction inserts the
-source event followed by every finding. Normal events commit with zero findings. A
-multi-signal event may commit several findings. Any event or finding insertion failure
-rolls back the complete transaction.
+## Technology stack
 
-Findings store stable rule IDs and JSON evidence arrays. `UNIQUE(event_id, rule_id)`
-prevents duplicate rows for one event and rule; deleting an event cascades to its
-findings. Evidence excludes log messages, exception-message contents, and metadata.
+| Area | Technologies |
+| --- | --- |
+| Runtime | Python 3.13, asyncio |
+| API and validation | FastAPI, Pydantic |
+| Persistence | PostgreSQL 17, SQLAlchemy 2.x, asyncpg, Alembic |
+| Demo frontend | Streamlit, requests |
+| Quality | pytest, Ruff, strict mypy |
+| Delivery | uv, Docker, Docker Compose, GitHub Actions |
 
-Findings have no public query API. Worker failures may lose events because the queue is
-process-local and there are no retries, dead-letter handling, replay, outbox, or durable
-broker. There is no incident grouping, rolling-window/statistical detection, alerting,
-explanation generation, or LLM involvement.
-
-
-## Query persisted anomalies
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/anomalies"
-curl "http://127.0.0.1:8000/api/v1/anomalies?anomaly_type=high_latency&severity=critical&limit=2"
-curl "http://127.0.0.1:8000/api/v1/anomalies?event_id=<event_uuid>"
-curl "http://127.0.0.1:8000/api/v1/anomalies?limit=2&cursor=<next_cursor>"
-```
-
-Supported filters are exact `event_id`, `anomaly_type`, `severity`, and `rule_id`, plus
-inclusive `created_at` bounds through `start_time` and `end_time`. Results are fixed to
-`created_at DESC, id DESC`. Limits range from 1 to 100 with a default of 50. Cursors are
-opaque URL-safe encoded values, not encrypted or signed, and responses have no total
-count.
-
-The endpoint is read-only and returns no source log messages or metadata. Migration
-`20260722_0002` must be applied. HTTP 202 ingestion remains queue acceptance only. There
-is no acknowledgement, resolution, mutation, aggregation, incident handling, alerting,
-or LLM explanation functionality.
-
-## Deterministic incident grouping
-
-Day 11 provides a pure in-memory grouper for persisted anomaly findings enriched with
-source-event service, environment, and occurrence time. The grouping key is
-`service + environment + anomaly_type`. The default policy requires two findings and
-allows a five-minute adjacent gap.
-
-Adjacent-gap clustering means 12:00, 12:04, and 12:08 remain one candidate. A gap
-exactly at five minutes is included; a larger gap starts another cluster. Candidates
-preserve aligned finding/event/rule tuples, aggregate highest severity by explicit rank,
-and use deterministic ordering. Duplicate finding UUIDs are rejected.
-
-No worker or scheduler invokes grouping yet. Incident candidates are not persisted and
-there is no incident API, acknowledgement, resolution, alerting, or LLM explanation.
-
-## Incident persistence foundation
-
-Day 12 persists immutable incident candidates using deterministic UUIDv5 identities.
-Identity includes service, environment, anomaly type, canonical UTC occurrence bounds,
-and ordered finding UUIDs. One transaction stores the incident and zero-based ordered
-memberships. Repeating an identical candidate returns the same UUID without duplicates;
-conflicting stored state fails explicitly.
-
-Apply Alembic revision `20260722_0003`. One anomaly finding may belong to only one
-persisted incident. Incident deletion cascades memberships, while deletion of an
-assigned finding is restricted. Downgrading to 0002 removes incident data but preserves
-logs and anomaly findings.
-
-Incident persistence is not invoked automatically. There is no grouping scheduler,
-worker integration, incident API, acknowledgement, resolution, assignment, alerting, or
-LLM explanation functionality.
-
-## Query persisted incidents
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/incidents"
-curl "http://127.0.0.1:8000/api/v1/incidents?service=payments-api"
-curl "http://127.0.0.1:8000/api/v1/incidents?highest_severity=critical&limit=20"
-curl "http://127.0.0.1:8000/api/v1/incidents?cursor=<opaque>"
-curl "http://127.0.0.1:8000/api/v1/incidents/<incident_uuid>"
-```
-
-List ordering is fixed to `last_seen_at DESC, id DESC` and uses opaque keyset cursors
-containing those two values. Exact filters combine with AND semantics; started and
-last-seen time bounds are inclusive, and `minimum_finding_count` is at least two.
-Limits range from 1 to 100 and default to 50. Responses contain no total count and the
-reader uses no SQL offset.
-
-Detail findings preserve zero-based membership order and expose safe anomaly identity,
-classification, rule, title, evidence, event correlation, and persistence time only.
-Source messages and metadata are neither loaded nor returned. Alembic revision
-`20260722_0003` is required. There are no incident mutation, acknowledgement,
-resolution, assignment, automatic grouping, worker integration, alerting, or LLM
-explanation endpoints.
-
-
-## Explicit incident generation
-
-Day 14 provides a framework-independent `GenerateIncidents` use case for callers that
-explicitly supply an inclusive source-event-time window. The eligible reader joins
-anomalies to source events, excludes already assigned finding UUIDs, and traverses them
-using internal ascending keyset pages:
+## Project structure
 
 ```text
-event timestamp ASC, finding creation time ASC, finding UUID ASC
+app/
+  domain/           # Immutable business values and incident candidates
+  application/      # Contracts, use cases, rules, grouping, orchestration
+  infrastructure/   # asyncio queue and PostgreSQL adapters
+  presentation/     # FastAPI routes, schemas, and dependency wiring
+  monitoring/       # Structured logging configuration
+  shared/           # Validated runtime settings
+streamlit_app/      # REST-only demonstration frontend
+alembic/            # Versioned PostgreSQL migrations
+tests/              # Unit, API, frontend, and guarded integration tests
+docs/               # Recruiter demo guide and screenshot placeholders
+.github/             # GitHub Actions CI
 ```
 
-The service loads the complete window before one deterministic grouping call, so page
-boundaries cannot split adjacent-gap clusters. Batch size controls reads only. Candidates
-persist sequentially and fail fast. Persistence is atomic per candidate, not across a
-whole run; a retry excludes previously assigned findings and can continue remaining work
-without run records or checkpoints.
+## Quick start
 
-This is an internal, explicitly invoked capability. It has no HTTP endpoint, scheduler,
-worker/lifecycle integration, CLI, automatic execution, acknowledgement, resolution,
-alerting, or LLM behavior. Alembic revision `20260722_0003` is required.
+### Local Python
 
-
-## Automatic incident generation after anomaly persistence
-
-The production event processor now runs this deterministic sequence:
-
-```text
-persist log and anomaly findings
-? generate incidents for the bounded source-event lookback window
-? return processing success
-```
-
-Generation runs synchronously once, only after successful anomaly persistence and only
-when findings exist. The inclusive generation window is [event timestamp - configured lookback, event timestamp]. Failures propagate without suppression or retry.
-
-All incident-generation adapters reuse the existing application engine and async session
-factory. There is no scheduler, lifecycle invocation, background generation task, HTTP
-or CLI trigger, widened window, retry, acknowledgement, resolution, or alerting.
-
-
-## Production processing observability
-
-Each background event now emits structured JSON lifecycle records for processing start,
-anomaly detection, persistence, incident generation, and completion or failure. The
-event UUID is the stable processing correlation ID. Durations use a monotonic clock and
-successful summaries include logs_processed, anomalies_detected, incidents_generated,
-processing_duration_ms, and outcome fields.
-
-Failure records contain the safe stage and exception type while the original exception
-continues through the existing processing boundary. Source messages, metadata, raw
-payloads, secrets, environment variables, and database URLs are not included. Worker
-startup, stopping, and stopped events are also logged.
-
-These are metric-style log fields only. SentinelStream adds no metrics endpoint,
-Prometheus, OpenTelemetry, tracing backend, retry, dead-letter queue, or behavior change.
-
-## Quality checks
+Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), and a reachable PostgreSQL
+instance.
 
 ```bash
-uv run pytest
-uv run pytest -m "not integration"
-uv run pytest -m integration -rs
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy app tests
-git diff --check
-```
-
-## Runtime incident lookback
-
-`SENTINELSTREAM_INCIDENT_GENERATION_LOOKBACK_SECONDS` configures the deterministic
-runtime window and defaults to 3600 seconds. Valid values are 1 through 86400. The
-processor uses source event time only:
-
-```text
-[event timestamp - configured lookback, event timestamp]
-```
-
-Both bounds are inclusive. Already assigned findings remain excluded, and the grouper
-does not extend or merge existing incidents. Generation has no scheduler or retry.
-Because HTTP 202 means queue acceptance, a response may already have been returned before
-the worker encounters an anomaly-persistence or incident-generation failure.
-
-## Local Python development
-
-The non-container workflow remains supported:
-
-~~~bash
+cp .env.example .env
 uv sync --frozen
 uv run alembic upgrade head
 uv run uvicorn app.presentation.api.main:app --host 127.0.0.1 --port 8000
-~~~
+```
 
-For this host workflow, set SENTINELSTREAM_DATABASE_URL to a PostgreSQL URL using
-localhost rather than the Compose service hostname.
+The Compose-oriented `.env.example` uses the hostname `postgres`. For a host-installed
+PostgreSQL server, change `SENTINELSTREAM_DATABASE_URL` in `.env` to use `localhost`
+before applying migrations. Keep the `postgresql+asyncpg://` scheme.
 
-## Docker Compose quick start
+Start Streamlit in a second terminal:
 
-Copy the safe local example, build the production image, start PostgreSQL, apply the
-explicit Alembic migration, and then start the API:
+```bash
+uv run streamlit run streamlit_app/app.py
+```
 
-~~~bash
+`STREAMLIT_BACKEND_URL` defaults to `http://127.0.0.1:8000`; override it when the API is
+elsewhere. Open <http://localhost:8501>.
+
+### Docker Compose
+
+The actual services are `postgres`, `api`, and `dashboard`:
+
+```bash
 cp .env.example .env
 docker compose build
 docker compose up -d postgres
 docker compose run --rm api uv run alembic upgrade head
-docker compose up -d api
+docker compose up -d api dashboard
 docker compose ps
+```
+
+Check API process health:
+
+```bash
 curl http://localhost:8000/health
-~~~
+```
 
-The API never runs migrations or metadata create_all during startup. Migration failures
-remain visible and prevent the one-shot migration command from succeeding. The API waits
-for PostgreSQL health before starting. FastAPI and the managed ingestion worker share
-one non-root API container; there is no separate worker container. Structured JSON logs
-are written to stdout.
+Then open the dashboard at <http://localhost:8501>. Stop services without deleting data
+using `docker compose down`. The destructive `docker compose down -v` additionally
+removes the local PostgreSQL volume.
 
-Inspect API logs with:
+## API overview
 
-~~~bash
-docker compose logs --no-color api
-~~~
+FastAPI exposes interactive OpenAPI documentation at <http://localhost:8000/docs> and
+<http://localhost:8000/redoc> with the default application configuration.
 
-Stop containers while preserving the database volume:
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Report API process health, service name, and version; it is not a database probe. |
+| `POST` | `/api/v1/logs` | Validate and enqueue one log; return HTTP 202 after queue placement. |
+| `GET` | `/api/v1/logs` | Read persisted logs with exact filters and keyset pagination. |
+| `GET` | `/api/v1/anomalies` | Read safe persisted anomaly findings with existing filters and keyset pagination. |
+| `GET` | `/api/v1/incidents` | Read incident summaries with existing filters and keyset pagination. |
+| `GET` | `/api/v1/incidents/{incident_id}` | Read one incident and its ordered findings. |
 
-~~~bash
-docker compose down
-~~~
+Example ingestion request:
 
-To destroy the local PostgreSQL volume and all its data, use the following destructive
-reset deliberately:
+```bash
+curl -X POST http://localhost:8000/api/v1/logs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timestamp": "2026-07-22T12:00:00Z",
+    "service": "payments-api",
+    "environment": "demo",
+    "level": "error",
+    "message": "Payment provider returned an error",
+    "status_code": 503,
+    "latency_ms": 1450,
+    "metadata": {}
+  }'
+```
 
-~~~bash
-docker compose down -v
-~~~
+A successful response has status `202 Accepted` and contains `status: "accepted"` plus
+the selected event UUID. There are no mutation endpoints for findings or incidents.
 
-## Continuous integration gates
+## Demo workflow
 
-GitHub Actions runs three least-privilege jobs:
+Follow [the recruiter demo guide](docs/demo.md) for the complete walkthrough:
 
-- quality: locked dependency sync, Ruff lint and format, strict mypy, non-integration
-  tests, Alembic history/head inspection, and an automated exactly-one-head assertion;
-- PostgreSQL integration: a health-checked sentinelstream_test database, Alembic upgrade,
-  and the integration suite with its safety guard enabled;
-- Docker build: a BuildKit production-image build without registry credentials or push.
+1. Start PostgreSQL and apply the explicit migrations.
+2. Start FastAPI and Streamlit.
+3. Submit two related error logs through the Demo page.
+4. Refresh Anomalies, then inspect the generated incident and ordered findings.
+5. Review structured processing and worker lifecycle logs.
 
-The container image installs locked runtime dependencies with uv, excludes tests and
-environment files, runs as an unprivileged user, and starts Uvicorn without reload.
+The dashboard does not poll continuously and does not bypass the API.
+
+## Testing and quality
+
+Latest locally verified baseline:
+
+- **406 tests passed**
+- **10 guarded PostgreSQL integration tests were collected but skipped locally** because
+  `SENTINELSTREAM_TEST_DATABASE_URL` was not configured
+- Ruff, formatting, and strict mypy passed
+
+```bash
+uv run pytest
+uv run pytest -m "not integration"
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app tests
+```
+
+PostgreSQL integration tests require a dedicated database whose name contains `test`.
+GitHub Actions provisions `sentinelstream_test`, applies Alembic migrations, and runs the
+integration marker separately. The local skipped tests are not described as locally
+passing.
+
+## Design decisions
+
+- **Deterministic rules over LLM decisions:** findings are repeatable, versioned, and
+  supported by bounded structured evidence. The MVP is intentionally LLM-free.
+- **Bounded in-process queue:** sufficient for a single-process MVP and explicit about
+  capacity, lifecycle, and non-durability without introducing a broker prematurely.
+- **Keyset pagination:** stable ordering and cursor traversal avoid offset drift and
+  increasingly expensive offsets.
+- **Explicit Alembic migrations:** schema changes remain reviewable operator actions;
+  startup performs no hidden DDL.
+- **UUIDv5 incident identity:** identical grouping inputs produce the same incident
+  identity and support idempotent persistence checks.
+- **Streamlit as presentation only:** it demonstrates existing contracts without direct
+  database access or duplicated rules.
+- **PostgreSQL as system of record:** normalized logs, findings, incidents, constraints,
+  and ordered memberships remain durable in one relational store.
+
+## Current limitations
+
+These are deliberate MVP boundaries rather than claims of production completeness:
+
+- No authentication, authorization, user accounts, or multi-tenancy
+- No durable broker, retries, replay workflow, or dead-letter queue
+- No alerts, notifications, incident acknowledgement, assignment, or resolution
+- No Prometheus, OpenTelemetry, tracing backend, or metrics endpoint
+- No Kubernetes or cloud deployment configuration
+- No LLM-generated findings or explanations
+
+## Future work
+
+Realistic extensions include durable queueing and replay, authenticated tenant-aware
+access, incident workflow state, outbound notification adapters, and standards-based
+metrics/tracing. Each would require an explicit reliability and security design rather
+than being implied by the MVP.
