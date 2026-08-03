@@ -1,419 +1,442 @@
-﻿# SentinelStream — Current State
+SentinelStream — Current State
 
-## Project
+Project
 
-SentinelStream is a production-oriented real-time log intelligence platform that ingests structured logs, detects deterministic anomalies, groups related findings into incidents, persists them transactionally, exposes cursor-paginated APIs, emits safe structured operational telemetry, and now includes containerization and continuous-integration configuration.
+SentinelStream is a portfolio-first real-time log intelligence platform that ingests structured server logs, detects deterministic anomalies, groups related failures into incidents, persists all operational data in PostgreSQL, and exposes the system through REST APIs and a lightweight Streamlit dashboard.
 
-## Completed and Committed
+MVP Status
 
-* Day 1 — Project foundation
-* Day 2 — Domain contracts
-* Day 3 — Log ingestion API
-* Day 4 — Queue and worker lifecycle
-* Day 5 — PostgreSQL persistence
-* Day 6 — Alembic migrations
-* Day 7 — Log query API
-* Day 8 — Deterministic anomaly detection
-* Day 9 — Atomic anomaly persistence
-* Day 10 — Anomaly query API
-* Day 11 — Deterministic incident grouping
-* Day 12 — Transactional incident persistence
-* Day 13 — Incident query API
-* Day 14 — Incident-generation orchestration
-* Day 15 — Runtime incident-generation wiring
-* Day 15.5 — Runtime generation lookback correction
-* Day 16 — Production observability and worker visibility
+SentinelStream MVP v1 is complete.
 
-## Completed and Awaiting Commit
+All planned development milestones from Day 1 through Day 18 have been implemented and verified within the available environment.
 
-Day 17 — Docker, Docker Compose, and GitHub Actions CI
+Completed Milestones
 
-## Current Verification Baseline
+- Day 1 — Project Foundation
+- Day 2 — Log Domain Contracts
+- Day 3 — Log Ingestion API
+- Day 4 — Asynchronous Queue and Worker Lifecycle
+- Day 5 — PostgreSQL Persistence Foundation
+- Day 6 — Alembic Migration Foundation
+- Day 7 — Log Query API and Cursor Pagination
+- Day 8 — Deterministic Anomaly Rules Engine
+- Day 9 — Atomic Anomaly Persistence and Worker Integration
+- Day 10 — Anomaly Query API and Cursor Pagination
+- Day 11 — Deterministic Incident Grouping
+- Day 12 — Transactional Incident Persistence
+- Day 13 — Incident Query API and Cursor Pagination
+- Day 14 — Incident Generation Orchestration
+- Day 15 — Runtime Incident Generation Integration
+- Day 15.5 — Runtime Generation Lookback Correction
+- Day 16 — Production Observability and Worker Visibility
+- Day 17 — Docker, Docker Compose, and GitHub Actions CI
+- Day 18 — Streamlit Demo Dashboard and Repository Polish
 
-```text
-399 passed
-10 guarded PostgreSQL integration tests collected
-Ruff passed
-Formatting passed
-mypy passed
-Compose configuration validated
-No dependency changes
-No migration changes
-```
+Core Runtime Flow
 
-## Day 17 Deliverables
+Structured log request
+        ↓
+FastAPI ingestion endpoint
+        ↓
+Bounded asynchronous queue
+        ↓
+Managed background worker
+        ↓
+Deterministic anomaly detection
+        ↓
+Atomic log and anomaly persistence
+        ↓
+Rolling event-time incident generation
+        ↓
+Deterministic incident grouping
+        ↓
+Transactional incident persistence
+        ↓
+REST APIs and Streamlit dashboard
+
+Backend Capabilities
+
+SentinelStream provides:
+
+- structured JSON log ingestion;
+- strict request validation and normalization;
+- immutable domain values;
+- bounded in-process asynchronous processing;
+- PostgreSQL persistence;
+- explicit Alembic migrations;
+- deterministic anomaly detection;
+- error-level detection;
+- server-error status detection;
+- exception-presence detection;
+- latency anomaly detection;
+- immutable anomaly findings;
+- atomic event-and-finding persistence;
+- deterministic incident grouping;
+- adjacent-gap temporal clustering;
+- configurable runtime incident lookback;
+- deterministic UUIDv5 incident identity;
+- ordered anomaly-to-incident memberships;
+- idempotent incident persistence;
+- database-enforced assignment uniqueness;
+- stable keyset pagination;
+- exact filtering;
+- structured lifecycle observability;
+- safe failure classification;
+- monotonic processing-duration measurement;
+- managed worker startup and shutdown.
+
+Public REST APIs
+
+GET  /health
+POST /api/v1/logs
+GET  /api/v1/logs
+GET  /api/v1/anomalies
+GET  /api/v1/incidents
+GET  /api/v1/incidents/{incident_id}
+
+Streamlit Dashboard
+
+The Streamlit frontend is isolated under:
+
+streamlit_app/
+
+It communicates with SentinelStream exclusively through the existing REST APIs.
+
+It does not access PostgreSQL directly and does not duplicate backend business logic.
+
+Pages
+
+- Overview
+- Logs
+- Anomalies
+- Incidents
+- Demo
+- About
+
+Overview
+
+Displays:
+
+- backend availability;
+- API health;
+- project summary;
+- log, anomaly, and incident information available through the APIs.
+
+Logs
+
+Provides:
+
+- server-side cursor pagination;
+- service filtering;
+- environment filtering;
+- level filtering;
+- manual refresh.
+
+Anomalies
+
+Provides:
+
+- anomaly listing;
+- severity information;
+- anomaly type;
+- stable rule IDs;
+- safe evidence;
+- API-supported filtering.
+
+Incidents
+
+Provides:
+
+- incident summaries;
+- severity;
+- service;
+- finding counts;
+- first-seen and last-seen times;
+- incident detail loading;
+- ordered anomaly memberships.
+
+Demo
+
+Provides a form for submitting a sample log through:
+
+POST /api/v1/logs
+
+The interface explains that HTTP 202 represents queue acceptance and that anomaly and incident processing occur asynchronously.
+
+It does not poll continuously.
+
+About
+
+Documents:
+
+- project purpose;
+- system architecture;
+- technology choices;
+- Clean Architecture boundaries;
+- deterministic processing design;
+- current MVP limitations.
+
+Streamlit Configuration
+
+The frontend uses:
+
+STREAMLIT_BACKEND_URL
+
+Local default:
+
+http://127.0.0.1:8000
+
+Docker Compose value:
+
+http://api:8000
+
+Streamlit Container
 
 Added:
 
-```text
-Dockerfile
-.dockerignore
-compose.yaml
-.github/workflows/ci.yml
-```
+Dockerfile.streamlit
 
-Updated:
+The frontend container remains separate from the backend API container.
 
-```text
-.env.example
-.gitignore
-README.md
-.ai/current_state.md
-.ai/architecture.md
-```
+The dashboard communicates with the API through the Compose service network.
 
-## Container Architecture
+Error Handling
 
-The local container topology is:
+The Streamlit client handles:
 
-```text
+- backend unavailability;
+- connection failures;
+- request timeouts;
+- malformed responses;
+- unsuccessful API responses.
+
+The interface displays safe user-facing messages.
+
+It does not expose stack traces, credentials, database URLs, or internal backend exceptions.
+
+Dependencies
+
+Day 18 added only:
+
+streamlit
+requests
+
+"pyproject.toml" was repaired after malformed literal line-ending markers were introduced.
+
+The file was validated as proper TOML, and "uv.lock" was regenerated successfully.
+
+No unnecessary frontend framework or state-management dependencies were added.
+
+Docker Architecture
+
 Docker Compose
 ├── api
 │   ├── FastAPI
 │   ├── managed ingestion worker
-│   ├── structured JSON logs
-│   └── health check
+│   └── structured JSON logs
+│
+├── dashboard
+│   └── REST-only demonstration dashboard
 │
 └── postgres
     ├── PostgreSQL
-    ├── persistent named volume
-    └── pg_isready health check
-```
+    └── persistent named volume
 
-The API and worker continue to run inside one process boundary managed by the FastAPI lifespan.
+Alembic remains the sole owner of schema evolution.
 
-No separate worker container exists.
+The application does not create tables automatically during startup.
 
-## Docker Image
+Continuous Integration
 
-The production image uses:
+GitHub Actions configuration includes:
 
-```text
-Python 3.13 slim
-multi-stage build
-uv
-locked dependency synchronization
-non-root runtime user
-```
+- locked dependency synchronization;
+- Ruff linting;
+- Ruff formatting checks;
+- strict mypy;
+- non-integration tests;
+- PostgreSQL integration tests;
+- Alembic migration validation;
+- single-head migration assertion;
+- production Docker image build.
 
-Dependencies are installed using:
+The workflow does not publish images or perform cloud deployment.
 
-```bash
-uv sync --frozen --no-dev
-```
+Documentation
 
-The runtime container:
+The repository now includes:
 
-* runs as UID `10001`
-* uses an exec-form command
-* starts the existing FastAPI application
-* does not use reload mode
-* preserves operating-system signal handling
-* does not embed environment secrets
-* includes required Alembic runtime files
-* excludes development and test artifacts where possible
+- recruiter-focused README hero;
+- feature summary;
+- Mermaid architecture diagram;
+- Python quick start;
+- Docker quick start;
+- Streamlit quick start;
+- API overview;
+- testing details;
+- design principles;
+- limitations and future work;
+- screenshot capture plan;
+- demo walkthrough.
 
-The application entry point is:
+The recruiter demo guide is located at:
 
-```text
-app.presentation.api.main:app
-```
+docs/demo.md
 
-## Docker Ignore Policy
+It covers:
 
-The Docker build context excludes:
+1. starting PostgreSQL;
+2. applying migrations;
+3. starting the API;
+4. starting Streamlit;
+5. submitting sample logs;
+6. observing anomalies;
+7. observing incidents;
+8. reviewing structured processing logs.
 
-* Git metadata
-* virtual environments
-* Python caches
-* pytest caches
-* mypy caches
-* Ruff caches
-* coverage output
-* distribution and build output
-* tests
-* local databases
-* editor metadata
-* `.env` files
-* local secrets
+Verification Results
 
-Runtime application and Alembic files remain included.
-
-## Docker Compose
-
-Compose defines:
-
-```text
-api
-postgres
-```
-
-### PostgreSQL
-
-The PostgreSQL service includes:
-
-* environment-driven database values
-* a clearly named local database
-* a persistent named volume
-* `pg_isready` health validation
-* localhost-only port publication
-* no unrestricted public database binding
-
-### API
-
-The API service includes:
-
-* production Dockerfile build
-* dependency on healthy PostgreSQL
-* localhost API-port publication
-* SentinelStream environment configuration
-* PostgreSQL connection through the Compose hostname
-* `/health` health check
-* structured logs written to stdout
-* `unless-stopped` restart behavior
-* no source-code bind mount
-* no development reload mode
-
-## Migration Strategy
-
-Alembic remains the sole owner of database schema evolution.
-
-Migrations are applied explicitly:
-
-```bash
-docker compose run --rm api uv run alembic upgrade head
-```
-
-The application does not:
-
-* call `Base.metadata.create_all`
-* create tables during startup
-* silently suppress migration errors
-* mutate schema outside Alembic
-
-Current migration head remains:
-
-```text
-20260722_0003
-```
-
-## Docker Quick Start
-
-```bash
-cp .env.example .env
-docker compose build
-docker compose up -d postgres
-docker compose run --rm api uv run alembic upgrade head
-docker compose up -d api
-docker compose ps
-curl http://localhost:8000/health
-```
-
-Shutdown:
-
-```bash
-docker compose down
-```
-
-Destructive database reset:
-
-```bash
-docker compose down -v
-```
-
-The `-v` command deletes the local PostgreSQL volume and its data.
-
-## Environment Configuration
-
-`.env.example` provides safe local examples for:
-
-* PostgreSQL database
-* PostgreSQL username
-* PostgreSQL password
-* SentinelStream database URL
-* API port
-* queue capacity
-* structured logging
-* runtime incident-generation lookback
-
-Real `.env` variants remain ignored.
-
-No real credentials are included.
-
-## Continuous Integration
-
-GitHub Actions contains separate jobs for:
-
-```text
-quality
-PostgreSQL integration
-Docker build
-```
-
-Workflow permissions are read-only.
-
-### Quality Job
-
-The quality job runs:
-
-```bash
-uv sync --frozen
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy app tests
-uv run pytest -m "not integration"
-```
-
-### PostgreSQL Integration Job
-
-The integration job:
-
-* provisions PostgreSQL
-* uses the database `sentinelstream_test`
-* waits for PostgreSQL health
-* configures `SENTINELSTREAM_TEST_DATABASE_URL`
-* applies Alembic migrations
-* executes the integration suite without skipping
-
-The database name satisfies the project’s test-database safety guard.
-
-### Alembic Validation
-
-CI runs:
-
-```bash
-uv run alembic history
-uv run alembic heads
-```
-
-It also programmatically asserts that exactly one migration head exists.
-
-### Docker Build Job
-
-CI builds the production image using Docker BuildKit.
-
-It does not:
-
-* push an image
-* use registry credentials
-* publish a release
-* deploy to cloud infrastructure
-
-## Local Verification Results
-
-```text
 uv run pytest
-PASS — 399 passed, 10 skipped
-```
+PASS — 406 passed, 10 skipped
 
-```text
-uv run pytest -m "not integration"
-PASS — 399 passed
-```
+The skipped tests require:
 
-```text
-uv run pytest -m integration -rs
-SKIPPED — 10 tests because SENTINELSTREAM_TEST_DATABASE_URL is absent locally
-```
+SENTINELSTREAM_TEST_DATABASE_URL
 
-```text
+Frontend boundary tests
+PASS — 7 new tests
+
 uv run ruff check .
 PASS
-```
 
-```text
 uv run ruff format --check .
-PASS — 143 Python files formatted
-```
+PASS — 148 files formatted
 
-```text
 uv run mypy app tests
-PASS — no issues across 139 source files
-```
+PASS — no issues across 141 source files
 
-```text
-docker compose config
-PASS
-```
-
-```text
-docker compose config --quiet
-PASS
-```
-
-```text
 git diff --check
 PASS
-```
 
-## Local Docker Limitation
+Streamlit Verification
 
-The Docker CLI and Compose plugin were available.
+The Streamlit application started successfully.
 
-The Docker Desktop Linux daemon was not running, so the following could not be completed locally:
+Its health endpoint returned:
 
-* production image build
-* container startup
-* migration execution inside the container
-* API health verification
-* container-log inspection
-* PostgreSQL integration-test execution
+HTTP 200
 
-No successful local image-build or runtime-health claim is made.
+This confirms that:
 
-GitHub Actions must provide the missing independent verification after the Day 17 commit is pushed.
+- dependency installation succeeded;
+- the application entry point imports correctly;
+- Streamlit can start in the current environment.
 
-## Dependency Status
+Compose Verification
 
-No changes to:
+docker compose config
+PASS
 
-```text
-pyproject.toml
-uv.lock
-```
+Full container execution was not available because the Docker Desktop Linux daemon was not running.
 
-## Migration Status
+Therefore, the following were not claimed as locally verified:
 
-No migration was added or modified.
+- image build;
+- API container startup;
+- Streamlit-to-containerized-API communication;
+- containerized PostgreSQL migration execution;
+- complete Docker demonstration flow.
 
-Current sole Alembic head:
+These should be verified through GitHub Actions and later local Docker execution.
 
-```text
+Dependency Status
+
+"pyproject.toml" and "uv.lock" now contain the intended Streamlit dependencies and valid locked resolution.
+
+No backend runtime dependency was changed unnecessarily.
+
+Migration Status
+
+No migration was added or modified during Day 18.
+
+Current Alembic chain:
+
+20260722_0001
+        ↓
+20260722_0002
+        ↓
 20260722_0003
-```
 
-## Scope Confirmation
+Current migration head:
 
-Day 17 added no:
+20260722_0003
 
-* Streamlit
-* frontend assets
-* Kubernetes
-* Helm
-* Terraform
-* cloud deployment
-* container-registry publishing
-* release workflow
-* separate worker container
-* Redis
-* Kafka
-* Celery
-* Prometheus
-* OpenTelemetry
-* authentication
-* new API endpoint
-* new business rule
-* Day 18 functionality
+Architecture Boundaries
 
-## Approval Status
+The Streamlit frontend:
 
-Day 17 is approved for commit.
+- uses REST APIs only;
+- does not import backend application services;
+- does not import ORM models;
+- does not open database sessions;
+- does not perform anomaly detection;
+- does not group incidents;
+- does not reproduce persistence logic.
 
-Full Day 17 verification remains conditional on a successful GitHub Actions run.
+The backend remains the primary engineering artifact.
 
-## Immediate Next Step
+Current MVP Limitations
 
-1. Commit and push Day 17.
-2. Inspect all GitHub Actions jobs.
-3. Fix any CI, Docker-build, or PostgreSQL integration failure before Day 18.
-4. Begin Day 18 only after the workflow is green.
+SentinelStream intentionally does not yet include:
+
+- authentication;
+- authorization;
+- multi-tenancy;
+- incident acknowledgement;
+- incident resolution;
+- assignments;
+- comments;
+- alert notifications;
+- durable message brokers;
+- retry queues;
+- dead-letter queues;
+- scheduled recovery scans;
+- Prometheus;
+- OpenTelemetry;
+- distributed tracing;
+- Elasticsearch;
+- Kafka;
+- Kubernetes;
+- cloud deployment;
+- LLM-generated incident explanations.
+
+These remain future roadmap items rather than MVP requirements.
+
+Final MVP Verification
+
+SentinelStream currently has:
+
+406 passing tests
+10 guarded PostgreSQL tests
+Ruff passing
+Formatting passing
+Strict mypy passing
+Streamlit startup verified
+Streamlit health HTTP 200
+Compose configuration valid
+No migration drift
+No uncommitted backend production-code changes
+
+Commit Decision
+
+Day 18 is complete and approved for commit.
+
+Immediate Next Steps
+
+1. Commit and push Day 18.
+2. Confirm the GitHub Actions workflow is fully green.
+3. Run the complete Docker Compose flow when Docker Desktop is available.
+4. Capture final dashboard screenshots.
+5. Record the demo video.
+6. Add SentinelStream to the portfolio website.
+7. Prepare the SentinelStream project defence and interview cheat sheet.

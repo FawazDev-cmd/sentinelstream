@@ -45,5 +45,18 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    environment:
+      STREAMLIT_BACKEND_URL: http://api:8000
+    ports:
+      - "127.0.0.1:${STREAMLIT_PORT:-8501}:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   sentinelstream_postgres_data:

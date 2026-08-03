@@ -276,3 +276,24 @@ Workflow permissions are read-only. The integration database name contains test,
 applies migrations before running tests. Migration validation programmatically requires
 exactly one Alembic head. Images are built only for verification and are never pushed.
 Runtime structured JSON logs continue to stdout.
+
+## Streamlit demonstration boundary
+
+Day 18 adds `streamlit_app` as an isolated presentation adapter. It communicates only
+through the existing public REST endpoints using a small synchronous requests client
+with bounded timeouts, response-shape checks, safe user-facing errors, and no stack-trace
+or secret display. It imports no domain, application, infrastructure, ORM, or database
+module.
+
+Logs, anomalies, and incidents retain backend keyset pagination. Streamlit stores only a
+per-filter cursor history to support Previous and Next controls. Overview totals are
+derived on explicit refresh by walking the existing cursor endpoints because the API has
+no aggregate contract. Anomaly service and source-event time are enriched through the
+public logs endpoint rather than a database join or new backend API.
+
+The Demo page submits the existing ingestion schema and makes HTTP 202 queue semantics
+explicit. It never polls continuously. The frontend's backend address comes from
+`STREAMLIT_BACKEND_URL`, defaulting to the local API. Compose supplies the internal
+`http://api:8000` address and runs Streamlit in a separate non-root container. This adds
+no business behavior, API, migration, scheduler, retry, authentication, or database
+access.

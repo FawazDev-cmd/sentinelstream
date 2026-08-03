@@ -10,7 +10,9 @@ dependencies = [
     "fastapi>=0.115.0,<1.0.0",
     "pydantic>=2.10.0,<3.0.0",
     "pydantic-settings>=2.7.0,<3.0.0",
+    "requests>=2.32,<3.0",
     "sqlalchemy>=2.0,<3.0",
+    "streamlit>=1.41,<2.0",
     "uvicorn>=0.34.0,<1.0.0",
 ]
 
