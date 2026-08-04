@@ -42,10 +42,37 @@ Open <http://localhost:8501>. The Compose dashboard uses
 `STREAMLIT_BACKEND_URL=http://api:8000`; host execution defaults to
 `http://127.0.0.1:8000`.
 
-## 5. Submit sample logs
+## 5. Seed deterministic screenshot data
 
-On **Demo**, submit two error logs with the same service and environment within five
-minutes. HTTP 202 confirms bounded queue acceptance, not completed processing.
+From the host, run the repository-owned REST-only seeder:
+
+```bash
+uv run python scripts/seed_demo.py
+```
+
+The script uses `SENTINELSTREAM_BACKEND_URL` when set and otherwise calls
+`http://127.0.0.1:8000`. A command-line override is also available:
+
+```bash
+uv run python scripts/seed_demo.py --backend-url http://127.0.0.1:8000
+```
+
+It submits fixed fictional production events in chronological order, waits briefly for
+the asynchronous worker, and verifies the visible logs, anomaly types, severities,
+incidents, and ordered incident details through public REST endpoints only. HTTP 202
+confirms bounded queue acceptance, not completed processing.
+
+For a clean, repeatable local dataset, reset the Docker volume explicitly before seeding:
+
+```bash
+docker compose down -v
+docker compose up -d postgres
+docker compose run --rm api uv run alembic upgrade head
+docker compose up -d api dashboard
+uv run python scripts/seed_demo.py
+```
+
+The seed script never deletes application data or resets Docker volumes itself.
 
 ## 6. Observe anomalies
 
