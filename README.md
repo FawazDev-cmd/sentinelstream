@@ -59,17 +59,17 @@ turn related operational signals into incidents without hiding decisions behind 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    UI[Streamlit dashboard] -->|REST only| API[FastAPI]
-    API -->|validated LogEvent| Q[Bounded in-process queue]
-    Q --> W[Managed worker]
-    W --> AD[Deterministic anomaly detection]
-    AD --> LP[Log persistence in one transaction]
-    LP --> AP[Anomaly persistence in the same transaction]
-    AP --> IG[Incident generation]
-    IG --> IP[Transactional incident persistence]
-    IP --> DB[(PostgreSQL)]
-    API -->|keyset-paginated reads| DB
+flowchart LR
+    UI["Streamlit dashboard"] -->|"REST only"| API["FastAPI"]
+    API -->|"validated LogEvent"| Q["Bounded in-process queue"]
+    Q --> W["Managed worker"]
+    W --> AD["Deterministic anomaly detection"]
+    AD --> LP["Log persistence in one transaction"]
+    LP --> AP["Anomaly persistence in the same transaction"]
+    AP --> IG["Incident generation"]
+    IG --> IP["Transactional incident persistence"]
+    IP --> DB[("PostgreSQL")]
+    API -->|"keyset-paginated reads"| DB
 ```
 
 Streamlit never connects to PostgreSQL. Presentation and infrastructure depend on
