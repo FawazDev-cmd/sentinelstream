@@ -15,7 +15,10 @@ COPY --from=builder --chown=sentinelstream:sentinelstream /app/.venv /app/.venv
 COPY --chown=sentinelstream:sentinelstream pyproject.toml uv.lock ./
 COPY --chown=sentinelstream:sentinelstream streamlit_app ./streamlit_app
 
-ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 USER sentinelstream
 EXPOSE 8501
 CMD ["uv", "run", "--frozen", "--no-sync", "streamlit", "run", "streamlit_app/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]

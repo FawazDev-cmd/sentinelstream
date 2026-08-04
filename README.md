@@ -1,4 +1,4 @@
-# SentinelStream
+﻿# SentinelStream
 
 [![CI](https://github.com/FawazDev-cmd/sentinelstream/actions/workflows/ci.yml/badge.svg)](https://github.com/FawazDev-cmd/sentinelstream/actions/workflows/ci.yml)
 ![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
@@ -94,22 +94,36 @@ SQLAlchemy, queues, and logging frameworks.
 
 ## Screenshots
 
-Screenshot capture is intentionally deferred until representative demo data is loaded.
-The following paths are reserved and easy to activate later without leaving broken image
-links in this README:
+The dashboard below uses deterministic fictional production data seeded through the
+public REST API.
 
-| View | Expected path |
-| --- | --- |
-| Overview | `docs/screenshots/overview.png` |
-| Logs | `docs/screenshots/logs.png` |
-| Anomalies | `docs/screenshots/anomalies.png` |
-| Incidents | `docs/screenshots/incidents.png` |
-| Demo ingestion | `docs/screenshots/demo-ingestion.png` |
-| Docker Compose | `docs/screenshots/docker-compose.png` |
-| GitHub Actions | `docs/screenshots/github-actions.png` |
+### Overview
 
-The directory is preserved by `docs/screenshots/.gitkeep`. No screenshot is claimed until
-the corresponding file exists.
+![SentinelStream overview dashboard](docs/screenshots/overview.jpg)
+
+### Logs
+
+![Structured production logs](docs/screenshots/logs.jpg)
+
+### Anomalies
+
+![Deterministic anomaly findings](docs/screenshots/anomalies.jpg)
+
+### Incidents
+
+![Persisted incident groups](docs/screenshots/incidents.jpg)
+
+### Incident detail
+
+![Ordered incident findings](docs/screenshots/incident-detail.jpg)
+
+### Demo ingestion
+
+![REST log ingestion form](docs/screenshots/demo.jpg)
+
+### About
+
+![SentinelStream architecture summary](docs/screenshots/about.jpg)
 
 ## Technology stack
 
