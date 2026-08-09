@@ -8,10 +8,11 @@
 **SentinelStream turns structured application logs into deterministic anomaly evidence and grouped incidents through an asynchronous, observable processing pipeline.**
 
 A FastAPI endpoint validates each log and accepts it into a bounded in-process queue. A
-managed worker applies deterministic anomaly rules, atomically stores the event and findings,
-and generates stable incidents in PostgreSQL. Cursor-paginated APIs expose the persisted
-results, while a separate Streamlit application provides a recruiter-friendly demo using
-only those public REST endpoints.
+managed worker applies deterministic anomaly rules and atomically stores the event and
+findings. It then generates and persists stable incidents through separate transaction
+boundaries in PostgreSQL. Cursor-paginated APIs expose the persisted results, while a
+separate Streamlit application provides a recruiter-friendly demo using only those public
+REST endpoints.
 
 ## Why SentinelStream
 
@@ -50,7 +51,8 @@ turn related operational signals into incidents without hiding decisions behind 
 ### Engineering quality
 
 - Clean Architecture with a framework-independent domain
-- Structured JSON processing and worker lifecycle logs with correlation IDs
+- Structured JSON processing and worker lifecycle logs correlated by the event UUID as
+  `processing_id`; client-provided request and trace IDs remain stored event fields
 - Monotonic processing-duration measurement and safe failure classification
 - Non-root Docker images and health-aware Docker Compose services
 - GitHub Actions gates for quality, PostgreSQL integration, migrations, and image builds
@@ -67,7 +69,7 @@ flowchart LR
     AD --> LP["Log persistence in one transaction"]
     LP --> AP["Anomaly persistence in the same transaction"]
     AP --> IG["Incident generation"]
-    IG --> IP["Transactional incident persistence"]
+    IG --> IP["Incident persistence in separate transactions"]
     IP --> DB[("PostgreSQL")]
     API -->|"keyset-paginated reads"| DB
 ```
@@ -88,9 +90,9 @@ SQLAlchemy, queues, and logging frameworks.
 5. The source log and all findings are committed atomically in one transaction.
 6. When findings exist, incident generation synchronously reads eligible findings within
    the configured source-event lookback and applies deterministic adjacent-gap grouping.
-7. Qualifying incidents and ordered memberships are persisted, and structured lifecycle
-   telemetry records the outcome. Failures propagate to the worker boundary without
-   retries.
+7. Each qualifying incident and its ordered memberships are persisted in a separate
+   transaction. Structured lifecycle telemetry records the outcome, and failures propagate
+   to the worker boundary without retries.
 
 ## Screenshots
 
@@ -290,7 +292,8 @@ passing.
 
 ## Current limitations
 
-These are deliberate MVP boundaries rather than claims of production completeness:
+This is a portfolio MVP that demonstrates production-minded engineering practices; it is
+not presented as production-ready. Its verified limitations include:
 
 - No authentication, authorization, user accounts, or multi-tenancy
 - No durable broker, retries, replay workflow, or dead-letter queue
