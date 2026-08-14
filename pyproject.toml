@@ -44,4 +44,7 @@ strict = true
 files = ["app", "tests"]
 
 [tool.uv]
-package = false
+package = true
+
+[tool.setuptools.packages.find]
+include = ['app*', 'scripts*', 'streamlit_app*']
